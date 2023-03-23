@@ -15,7 +15,7 @@ import random
 import numpy as np
 import carla
 
-from python.gym_carla.envs.misc import distance_vehicle, is_within_distance_ahead, compute_magnitude_angle
+from carla_python.gym_carla.envs.misc import distance_vehicle, is_within_distance_ahead, compute_magnitude_angle
 
 
 class RoadOption(Enum):
@@ -29,7 +29,7 @@ class RoadOption(Enum):
     LANEFOLLOW = 4
 
 
-class RoutePlanner():
+class RoutePlanner:
     def __init__(self, vehicle, buffer_size):
         self._vehicle = vehicle
         self._world = self._vehicle.get_world()

@@ -19,9 +19,9 @@ from gym import spaces
 from gym.utils import seeding
 import carla
 
-from python.gym_carla.envs.render import BirdeyeRender
-from python.gym_carla.envs.route_planner import RoutePlanner
-from python.gym_carla.envs.misc import *
+from carla_python.gym_carla.envs.render import BirdeyeRender
+from carla_python.gym_carla.envs.route_planner import RoutePlanner
+from carla_python.gym_carla.envs.misc import *
 
 
 class CarlaEnv(gym.Env):
@@ -90,8 +90,8 @@ class CarlaEnv(gym.Env):
         print('connecting to Carla server...')
         client = carla.Client('localhost', params['port'])
         client.set_timeout(15.0)
-        # self.world = client.load_world(params['town'])
-        self.world = client.get_world()
+        self.world = client.load_world(params['town'])
+        # self.world = client.get_world()
         print('Carla server connected!')
 
         # Set weather
@@ -117,14 +117,16 @@ class CarlaEnv(gym.Env):
 
         # Lidar sensor
         self.lidar_data = None
-        self.lidar_height = 1.1
-        # self.lidar_height = 2.1
+        # self.lidar_height = 0.5
+        self.lidar_height = 2.1
         self.lidar_trans = carla.Transform(carla.Location(x=0.0, y=0.0, z=self.lidar_height))
         self.lidar_bp = self.world.get_blueprint_library().find('sensor.lidar.ray_cast')
         self.lidar_bp.set_attribute('channels', '32')
         self.lidar_bp.set_attribute('range', '5000')
-        self.lidar_bp.set_attribute('dropoff_general_rate', '0.5') # default 0.45 odrzucanie punktów
+        # self.lidar_bp.set_attribute('dropoff_general_rate', '0.2') # default 0.45 odrzucanie punktów
         # self.lidar_bp.set_attribute('rotation_frequency', '15') # default 10
+        # self.lidar_bp.set_attribute('upper_fov', '0')
+        # self.lidar_bp.set_attribute('lower_fov', '2')
 
         # Camera sensor
         self.camera_img = np.zeros((self.obs_size, self.obs_size, 3), dtype=np.uint8)
@@ -161,7 +163,7 @@ class CarlaEnv(gym.Env):
         self.camera_sensor = None
 
         # Delete sensors, vehicles and walkers
-        self._clear_all_actors(['sensor.other.collision', 'sensor.lidar.ray_cast', 'sensor.camera.rgb', 'vehicle.*',
+        self._clear_all_actors(['sensor.*', 'vehicle.*',
                                 'controller.ai.walker', 'walker.*'])
 
         # Disable sync mode
@@ -286,6 +288,9 @@ class CarlaEnv(gym.Env):
         # Apply control
         act = carla.VehicleControl(throttle=float(throttle), steer=float(-steer), brake=float(brake))
         self.ego.apply_control(act)
+        spectator = self.world.get_spectator()
+        transform = carla.Transform(self.ego.get_transform().transform(carla.Location(x=-5, z=2)), self.ego.get_transform().rotation)
+        spectator.set_transform(transform)
 
         self.world.tick()
 
@@ -507,7 +512,7 @@ class CarlaEnv(gym.Env):
         point_cloud = []
         # Get point cloud data
         for location in self.lidar_data:
-            point_cloud.append([location.point.x, location.point.y, location.point.z])
+            point_cloud.append([location.point.x - 4, location.point.y - 4, location.point.z])
         point_cloud = np.array(point_cloud)
         # Separate the 3D space to bins for point cloud, x and y is set according to self.lidar_bin,
         # and z is set to be two bins.
@@ -518,19 +523,20 @@ class CarlaEnv(gym.Env):
         lidar, _ = np.histogramdd(point_cloud, bins=(x_bins, y_bins, z_bins))
         lidar[:, :, 0] = np.array(lidar[:, :, 0] > 0, dtype=np.uint8)
         lidar[:, :, 1] = np.array(lidar[:, :, 1] > 0, dtype=np.uint8)
-        lidar = np.rot90(lidar, 3)
+        lidar = np.rot90(lidar, 2)
+        lidar = np.fliplr(lidar)
         # Add the waypoints to lidar image
         if self.display_route:
             wayptimg = (birdeye[:, :, 0] <= 10) * (birdeye[:, :, 1] <= 10) * (birdeye[:, :, 2] >= 240)
         else:
             wayptimg = birdeye[:, :, 0] < 0  # Equal to a zero matrix
         wayptimg = np.expand_dims(wayptimg, axis=2)
-        wayptimg = np.fliplr(np.rot90(wayptimg, 3))
+        # wayptimg = np.fliplr(np.rot90(wayptimg, 3))
 
         # Get the final lidar image
         lidar = np.concatenate((lidar, wayptimg), axis=2)
-        lidar = np.flip(lidar, axis=1)
-        lidar = np.rot90(lidar, 1)
+        # lidar = np.flip(lidar, axis=1)
+        # lidar = np.rot90(lidar, 1)
         lidar = lidar * 255
 
         # Display lidar image
@@ -611,6 +617,19 @@ class CarlaEnv(gym.Env):
         return obs
 
     def _get_reward(self):
+        # https://fengb2-coder.github.io/AutonomousDriving.html
+
+        # v = self.ego.get_velocity()
+        # kmh = int(3.6 * math.sqrt(v.x ** 2 + v.y ** 2 + v.z ** 2))
+        #
+        # if len(self.collision_hist) != 0:
+        #     return -200
+        # # elif kmh < int(3.6 * self.desired_speed):
+        # elif kmh < 10:
+        #     return -1
+        # else:
+        #     return 3
+
         """Calculate the step reward."""
         # reward for speed tracking
         v = self.ego.get_velocity()
@@ -644,9 +663,12 @@ class CarlaEnv(gym.Env):
         # cost for lateral acceleration
         r_lat = - abs(self.ego.get_control().steer) * lspeed_lon ** 2
 
-        r = 200 * r_collision + 1 * lspeed_lon + 10 * r_fast + 1 * r_out + r_steer * 5 + 0.2 * r_lat - 0.1
+        # if speed < 1:
+        #     speed = -5
 
-        return r
+        return speed
+        # return 20 * r_collision + 1 * lspeed_lon + 10 * r_fast + 1 * r_out + r_steer * 5 + 0.2 * r_lat - 0.1
+        # return 200 * r_collision + 3 * lspeed_lon + 10 * r_fast + 1 * r_out + r_steer * 5 + 0.2 * r_lat - 0.1
 
     def _terminal(self):
         """Calculate whether to terminate the current episode."""
