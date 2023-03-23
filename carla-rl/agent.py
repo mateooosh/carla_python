@@ -4,11 +4,9 @@ import numpy as np
 from collections import deque
 
 from keras import Model
-from keras.applications import Xception
 from keras.models import Sequential
 from keras.layers import Dense, GlobalAveragePooling2D, Conv2D, Activation, AveragePooling2D, Flatten
 from keras.optimizers import Adam
-import os
 
 IM_HEIGHT = 256
 IM_WIDTH = 256

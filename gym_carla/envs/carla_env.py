@@ -1,27 +1,16 @@
-#!/usr/bin/env python
-
-# Copyright (c) 2019: Jianyu Chen (jianyuchen@berkeley.edu)
-#
-# This work is licensed under the terms of the MIT license.
-# For a copy, see <https://opensource.org/licenses/MIT>.
-
 from __future__ import division
 
 import copy
-import numpy as np
-import pygame
 import random
 import time
-from skimage.transform import resize
 
 import gym
 from gym import spaces
 from gym.utils import seeding
-import carla
 
+from carla_python.gym_carla.envs.misc import *
 from carla_python.gym_carla.envs.render import BirdeyeRender
 from carla_python.gym_carla.envs.route_planner import RoutePlanner
-from carla_python.gym_carla.envs.misc import *
 
 
 class CarlaEnv(gym.Env):
@@ -141,8 +130,6 @@ class CarlaEnv(gym.Env):
     def reset(self):
         # Clear sensor objects
         self.collision_sensor = None
-        self.lidar_sensor = None
-        self.camera_sensor = None
 
         # Delete sensors, vehicles and walkers
         self._clear_all_actors(['sensor.*', 'vehicle.*',

@@ -6,8 +6,6 @@ from carla_python.gym_carla.envs import CarlaEnv
 from agent import DQNAgent
 import tensorflow as tf
 
-
-
 def main():
     # parameters for the gym_carla environment
     params = {
@@ -17,7 +15,7 @@ def main():
         'max_past_step': 1,  # the number of past steps to draw
         'dt': 0.1,  # time interval between two frames
         'discrete': True,  # whether to use discrete control space
-        'discrete_acc': [0.0, 3.0],  # discrete value of accelerations
+        'discrete_acc': [-3.0, 0.0, 3.0],  # discrete value of accelerations
         'discrete_steer': [-0.3, 0.0, 0.3],  # discrete value of steering angles
         'continuous_accel_range': [-3.0, 3.0],  # continuous acceleration range
         'continuous_steer_range': [-0.3, 0.3],  # continuous steering angle range
@@ -36,24 +34,21 @@ def main():
         'display_route': True  # whether to render the desired route
     }
 
-    episodes = 21
+    episodes = 101
     batch_size = 100
     rewards = []
 
     # Set gym-carla environment
     env = CarlaEnv(params)
-    agent = DQNAgent(6)
+    agent = DQNAgent(9)
 
     for e in range(episodes):
         state = env.reset()
         state = state['birdeye']
-        images_list = []
-        images_list.append(np.array(state))
-        state = np.asarray(images_list)
-
-        # import numpy as np
-        # transformedImage = np.expand_dims(transformedImage, axis=0)
-        # transformedImage.shape
+        # images_list = []
+        # images_list.append(np.array(state))
+        # state = np.asarray(images_list)
+        state = np.expand_dims(state, axis=0)
 
         done = False
         total_reward = 0
@@ -61,9 +56,10 @@ def main():
             action = agent.act(state)
             next_state, reward, done, _ = env.step(action)
             next_state = next_state['birdeye']
-            images_list = []
-            images_list.append(np.array(next_state))
-            next_state = np.asarray(images_list)
+            # images_list = []
+            # images_list.append(np.array(next_state))
+            # next_state = np.asarray(images_list)
+            next_state = np.expand_dims(next_state, axis=0)
 
             total_reward += reward
             agent.remember(state, action, reward, next_state, done)
