@@ -1,16 +1,29 @@
+#!/usr/bin/env python
+
+# Copyright (c) 2019: Jianyu Chen (jianyuchen@berkeley.edu)
+#
+# This work is licensed under the terms of the MIT license.
+# For a copy, see <https://opensource.org/licenses/MIT>.
+
 from __future__ import division
 
 import copy
+import numpy as np
+import pygame
 import random
 import time
+
+from carla import ColorConverter
+from skimage.transform import resize
 
 import gym
 from gym import spaces
 from gym.utils import seeding
+import carla
 
-from carla_python.gym_carla.envs.misc import *
 from carla_python.gym_carla.envs.render import BirdeyeRender
 from carla_python.gym_carla.envs.route_planner import RoutePlanner
+from carla_python.gym_carla.envs.misc import *
 
 
 class CarlaEnv(gym.Env):
@@ -34,6 +47,11 @@ class CarlaEnv(gym.Env):
         self.desired_speed = params['desired_speed']
         self.max_ego_spawn_times = params['max_ego_spawn_times']
         self.display_route = params['display_route']
+        if 'pixor' in params.keys():
+            self.pixor = params['pixor']
+            self.pixor_size = params['pixor_size']
+        else:
+            self.pixor = False
 
         # Destination
         if params['task_mode'] == 'roundabout':
@@ -60,7 +78,14 @@ class CarlaEnv(gym.Env):
             'birdeye': spaces.Box(low=0, high=255, shape=(self.obs_size, self.obs_size, 3), dtype=np.uint8),
             'state': spaces.Box(np.array([-2, -1, -5, 0]), np.array([2, 1, 30, 1]), dtype=np.float32)
         }
-
+        if self.pixor:
+            observation_space_dict.update({
+                'roadmap': spaces.Box(low=0, high=255, shape=(self.obs_size, self.obs_size, 3), dtype=np.uint8),
+                'vh_clas': spaces.Box(low=0, high=1, shape=(self.pixor_size, self.pixor_size, 1), dtype=np.float32),
+                'vh_regr': spaces.Box(low=-5, high=5, shape=(self.pixor_size, self.pixor_size, 6), dtype=np.float32),
+                'pixor_state': spaces.Box(np.array([-1000, -1000, -1, -1, -5]), np.array([1000, 1000, 1, 1, 20]),
+                                          dtype=np.float32)
+            })
         self.observation_space = spaces.Dict(observation_space_dict)
 
         # Connect to carla server and get world object
@@ -108,7 +133,7 @@ class CarlaEnv(gym.Env):
         # Camera sensor
         self.camera_img = np.zeros((self.obs_size, self.obs_size, 3), dtype=np.uint8)
         self.camera_trans = carla.Transform(carla.Location(x=0.8, z=1.7))
-        self.camera_bp = self.world.get_blueprint_library().find('sensor.camera.rgb')
+        self.camera_bp = self.world.get_blueprint_library().find('sensor.camera.semantic_segmentation')
         # Modify the attributes of the blueprint to set image resolution and field of view.
         self.camera_bp.set_attribute('image_size_x', str(self.obs_size))
         self.camera_bp.set_attribute('image_size_y', str(self.obs_size))
@@ -127,9 +152,17 @@ class CarlaEnv(gym.Env):
         # Initialize the renderer
         self._init_renderer()
 
+        # Get pixel grid points
+        if self.pixor:
+            x, y = np.meshgrid(np.arange(self.pixor_size), np.arange(self.pixor_size))  # make a canvas with coordinates
+            x, y = x.flatten(), y.flatten()
+            self.pixel_grid = np.vstack((x, y)).T
+
     def reset(self):
         # Clear sensor objects
         self.collision_sensor = None
+        self.lidar_sensor = None
+        self.camera_sensor = None
 
         # Delete sensors, vehicles and walkers
         self._clear_all_actors(['sensor.*', 'vehicle.*',
@@ -203,6 +236,24 @@ class CarlaEnv(gym.Env):
 
         self.collision_hist = []
 
+        # Add lidar sensor
+        self.lidar_sensor = self.world.spawn_actor(self.lidar_bp, self.lidar_trans, attach_to=self.ego)
+        self.lidar_sensor.listen(lambda data: get_lidar_data(data))
+
+        def get_lidar_data(data):
+            self.lidar_data = data
+
+        # Add camera sensor
+        self.camera_sensor = self.world.spawn_actor(self.camera_bp, self.camera_trans, attach_to=self.ego)
+        self.camera_sensor.listen(lambda data: get_camera_img(data))
+
+        def get_camera_img(data):
+            data.convert(carla.ColorConverter.CityScapesPalette)
+            array = np.frombuffer(data.raw_data, dtype=np.dtype("uint8"))
+            array = np.reshape(array, (data.height, data.width, 4))
+            array = array[:, :, :3]
+            array = array[:, :, ::-1]
+            self.camera_img = array
 
         # Update timesteps
         self.time_step = 0
@@ -304,7 +355,7 @@ class CarlaEnv(gym.Env):
         """
         pygame.init()
         self.display = pygame.display.set_mode(
-            (self.display_size, self.display_size),
+            (self.display_size * 2, self.display_size),
             pygame.HWSURFACE | pygame.DOUBLEBUF)
 
         pixels_per_meter = self.display_size / self.obs_range
@@ -440,9 +491,65 @@ class CarlaEnv(gym.Env):
         birdeye = birdeye[0:self.display_size, :, :]
         birdeye = display_to_rgb(birdeye, self.obs_size)
 
+        # Roadmap
+        if self.pixor:
+            roadmap_render_types = ['roadmap']
+            if self.display_route:
+                roadmap_render_types.append('waypoints')
+            self.birdeye_render.render(self.display, roadmap_render_types)
+            roadmap = pygame.surfarray.array3d(self.display)
+            roadmap = roadmap[0:self.display_size, :, :]
+            roadmap = display_to_rgb(roadmap, self.obs_size)
+            # Add ego vehicle
+            for i in range(self.obs_size):
+                for j in range(self.obs_size):
+                    if abs(birdeye[i, j, 0] - 255) < 20 and abs(birdeye[i, j, 1] - 0) < 20 and abs(
+                            birdeye[i, j, 0] - 255) < 20:
+                        roadmap[i, j, :] = birdeye[i, j, :]
+
         # Display birdeye image
         birdeye_surface = rgb_to_display_surface(birdeye, self.display_size)
         self.display.blit(birdeye_surface, (0, 0))
+
+        ## Lidar image generation
+        point_cloud = []
+        # Get point cloud data
+        for location in self.lidar_data:
+            point_cloud.append([location.point.x - 4, location.point.y - 4, location.point.z])
+        point_cloud = np.array(point_cloud)
+        # Separate the 3D space to bins for point cloud, x and y is set according to self.lidar_bin,
+        # and z is set to be two bins.
+        y_bins = np.arange(-(self.obs_range - self.d_behind), self.d_behind + self.lidar_bin, self.lidar_bin)
+        x_bins = np.arange(-self.obs_range / 2, self.obs_range / 2 + self.lidar_bin, self.lidar_bin)
+        z_bins = [-self.lidar_height - 1, -self.lidar_height + 0.25, 1]
+        # Get lidar image according to the bins
+        lidar, _ = np.histogramdd(point_cloud, bins=(x_bins, y_bins, z_bins))
+        lidar[:, :, 0] = np.array(lidar[:, :, 0] > 0, dtype=np.uint8)
+        lidar[:, :, 1] = np.array(lidar[:, :, 1] > 0, dtype=np.uint8)
+        lidar = np.rot90(lidar, 2)
+        lidar = np.fliplr(lidar)
+        # Add the waypoints to lidar image
+        if self.display_route:
+            wayptimg = (birdeye[:, :, 0] <= 10) * (birdeye[:, :, 1] <= 10) * (birdeye[:, :, 2] >= 240)
+        else:
+            wayptimg = birdeye[:, :, 0] < 0  # Equal to a zero matrix
+        wayptimg = np.expand_dims(wayptimg, axis=2)
+        # wayptimg = np.fliplr(np.rot90(wayptimg, 3))
+
+        # Get the final lidar image
+        lidar = np.concatenate((lidar, wayptimg), axis=2)
+        # lidar = np.flip(lidar, axis=1)
+        # lidar = np.rot90(lidar, 1)
+        lidar = lidar * 255
+
+        # # Display lidar image
+        # lidar_surface = rgb_to_display_surface(lidar, self.display_size)
+        # self.display.blit(lidar_surface, (self.display_size * 2, 0))
+
+        ## Display camera image
+        camera = resize(self.camera_img, (self.obs_size, self.obs_size)) * 255
+        camera_surface = rgb_to_display_surface(camera, self.display_size)
+        self.display.blit(camera_surface, (self.display_size, 0))
 
         # Display on pygame
         pygame.display.flip()
@@ -459,10 +566,56 @@ class CarlaEnv(gym.Env):
         speed = np.sqrt(v.x ** 2 + v.y ** 2)
         state = np.array([lateral_dis, - delta_yaw, speed, self.vehicle_front])
 
+        if self.pixor:
+            ## Vehicle classification and regression maps (requires further normalization)
+            vh_clas = np.zeros((self.pixor_size, self.pixor_size))
+            vh_regr = np.zeros((self.pixor_size, self.pixor_size, 6))
+
+            # Generate the PIXOR image. Note in CARLA it is using left-hand coordinate
+            # Get the 6-dim geom parametrization in PIXOR, here we use pixel coordinate
+            for actor in self.world.get_actors().filter('vehicle.*'):
+                x, y, yaw, l, w = get_info(actor)
+                x_local, y_local, yaw_local = get_local_pose((x, y, yaw), (ego_x, ego_y, ego_yaw))
+                if actor.id != self.ego.id:
+                    if abs(y_local) < self.obs_range / 2 + 1 and x_local < self.obs_range - self.d_behind + 1 and x_local > -self.d_behind - 1:
+                        x_pixel, y_pixel, yaw_pixel, l_pixel, w_pixel = get_pixel_info(
+                            local_info=(x_local, y_local, yaw_local, l, w),
+                            d_behind=self.d_behind, obs_range=self.obs_range, image_size=self.pixor_size)
+                        cos_t = np.cos(yaw_pixel)
+                        sin_t = np.sin(yaw_pixel)
+                        logw = np.log(w_pixel)
+                        logl = np.log(l_pixel)
+                        pixels = get_pixels_inside_vehicle(
+                            pixel_info=(x_pixel, y_pixel, yaw_pixel, l_pixel, w_pixel),
+                            pixel_grid=self.pixel_grid)
+                        for pixel in pixels:
+                            vh_clas[pixel[0], pixel[1]] = 1
+                            dx = x_pixel - pixel[0]
+                            dy = y_pixel - pixel[1]
+                            vh_regr[pixel[0], pixel[1], :] = np.array(
+                                [cos_t, sin_t, dx, dy, logw, logl])
+
+            # Flip the image matrix so that the origin is at the left-bottom
+            vh_clas = np.flip(vh_clas, axis=0)
+            vh_regr = np.flip(vh_regr, axis=0)
+
+            # Pixor state, [x, y, cos(yaw), sin(yaw), speed]
+            pixor_state = [ego_x, ego_y, np.cos(ego_yaw), np.sin(ego_yaw), speed]
+
         obs = {
+            'camera': camera.astype(np.uint8),
+            'lidar': lidar.astype(np.uint8),
             'birdeye': birdeye.astype(np.uint8),
             'state': state,
         }
+
+        if self.pixor:
+            obs.update({
+                'roadmap': roadmap.astype(np.uint8),
+                'vh_clas': np.expand_dims(vh_clas, -1).astype(np.float32),
+                'vh_regr': vh_regr.astype(np.float32),
+                'pixor_state': pixor_state,
+            })
 
         return obs
 
@@ -554,3 +707,4 @@ class CarlaEnv(gym.Env):
                     if actor.type_id == 'controller.ai.walker':
                         actor.stop()
                     actor.destroy()
+                    
