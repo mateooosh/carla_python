@@ -14,21 +14,17 @@ IM_WIDTH = 512
 
 
 class DQNAgent:
-    def __init__(self, action_size, neural_network, keep_learing, model_name):
+    def __init__(self, action_size, neural_network):
         self.action_size = action_size
-        self.keep_learing = keep_learing
         self.memory = deque(maxlen=2000)
         self.gamma = 0.95
         # self.epsilon = 1 if keep_learing else 0.05
         self.epsilon = 1.0
-        self.epsilon_decay = 0.998
+        self.epsilon_decay = 0.9985
         # self.epsilon_min = 0.01
         self.epsilon_min = 0.05
         self.learning_rate = 0.001
         self.model = self._build_model(neural_network)
-
-        if keep_learing:
-            self.load(model_name)
 
     def _build_model(self, neural_network):
         # model = Sequential()
@@ -57,21 +53,21 @@ class DQNAgent:
         # model.add(Dense(128, activation='relu'))
         # model.add(Dense(self.action_size, activation='softmax'))
 
-
         # LeNet-5
         if neural_network == 'LeNet':
             model = Sequential()
             model.add(Conv2D(32, kernel_size=(3, 3), activation='relu', input_shape=(IM_HEIGHT, IM_WIDTH, 3)))
             model.add(MaxPooling2D(pool_size=(2, 2)))
-            model.add(Conv2D(64, kernel_size=(3, 3), activation='relu'))
+            model.add(Conv2D(32, kernel_size=(3, 3), activation='relu'))
             model.add(MaxPooling2D(pool_size=(2, 2)))
-            model.add(Dropout(0.25))
+            model.add(Dropout(0.2))
             model.add(Flatten())
-            model.add(Dense(128, activation='relu'))
-            model.add(Dropout(0.5))
+            model.add(Dense(64, activation='relu'))
+            model.add(Dropout(0.2))
             model.add(Dense(self.action_size, activation='linear'))
             model = Model(inputs=model.input, outputs=model.output)
             model.compile(loss="mse", optimizer=Adam(learning_rate=self.learning_rate), metrics=["accuracy"])
+            model.summary()
             return model
         else:
             return None
@@ -103,3 +99,4 @@ class DQNAgent:
 
     def load(self, name):
         self.model.load_weights(name)
+        self.epsilon = 0.05

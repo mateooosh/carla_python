@@ -1,10 +1,3 @@
-#!/usr/bin/env python
-
-# Copyright (c) 2019: Jianyu Chen (jianyuchen@berkeley.edu)
-#
-# This work is licensed under the terms of the MIT license.
-# For a copy, see <https://opensource.org/licenses/MIT>.
-
 from __future__ import division
 
 import copy
@@ -47,11 +40,6 @@ class CarlaEnv(gym.Env):
         self.desired_speed = params['desired_speed']
         self.max_ego_spawn_times = params['max_ego_spawn_times']
         self.display_route = params['display_route']
-        if 'pixor' in params.keys():
-            self.pixor = params['pixor']
-            self.pixor_size = params['pixor_size']
-        else:
-            self.pixor = False
 
         # Destination
         if params['task_mode'] == 'roundabout':
@@ -78,14 +66,7 @@ class CarlaEnv(gym.Env):
             'birdeye': spaces.Box(low=0, high=255, shape=(self.obs_size, self.obs_size, 3), dtype=np.uint8),
             'state': spaces.Box(np.array([-2, -1, -5, 0]), np.array([2, 1, 30, 1]), dtype=np.float32)
         }
-        if self.pixor:
-            observation_space_dict.update({
-                'roadmap': spaces.Box(low=0, high=255, shape=(self.obs_size, self.obs_size, 3), dtype=np.uint8),
-                'vh_clas': spaces.Box(low=0, high=1, shape=(self.pixor_size, self.pixor_size, 1), dtype=np.float32),
-                'vh_regr': spaces.Box(low=-5, high=5, shape=(self.pixor_size, self.pixor_size, 6), dtype=np.float32),
-                'pixor_state': spaces.Box(np.array([-1000, -1000, -1, -1, -5]), np.array([1000, 1000, 1, 1, 20]),
-                                          dtype=np.float32)
-            })
+
         self.observation_space = spaces.Dict(observation_space_dict)
 
         # Connect to carla server and get world object
@@ -125,14 +106,10 @@ class CarlaEnv(gym.Env):
         self.lidar_bp = self.world.get_blueprint_library().find('sensor.lidar.ray_cast')
         self.lidar_bp.set_attribute('channels', '32')
         self.lidar_bp.set_attribute('range', '5000')
-        # self.lidar_bp.set_attribute('dropoff_general_rate', '0.2') # default 0.45 odrzucanie punktów
-        # self.lidar_bp.set_attribute('rotation_frequency', '15') # default 10
-        # self.lidar_bp.set_attribute('upper_fov', '0')
-        # self.lidar_bp.set_attribute('lower_fov', '2')
 
         # Camera sensor
         self.camera_img = np.zeros((self.obs_size, self.obs_size, 3), dtype=np.uint8)
-        self.camera_trans = carla.Transform(carla.Location(x=0.8, z=1.7))
+        self.camera_trans = carla.Transform(carla.Location(x=1.5, z=1.7))
         self.camera_bp = self.world.get_blueprint_library().find('sensor.camera.semantic_segmentation')
         # Modify the attributes of the blueprint to set image resolution and field of view.
         self.camera_bp.set_attribute('image_size_x', str(self.obs_size))
@@ -152,12 +129,6 @@ class CarlaEnv(gym.Env):
         # Initialize the renderer
         self._init_renderer()
 
-        # Get pixel grid points
-        if self.pixor:
-            x, y = np.meshgrid(np.arange(self.pixor_size), np.arange(self.pixor_size))  # make a canvas with coordinates
-            x, y = x.flatten(), y.flatten()
-            self.pixel_grid = np.vstack((x, y)).T
-
     def reset(self):
         # Clear sensor objects
         self.collision_sensor = None
@@ -166,7 +137,7 @@ class CarlaEnv(gym.Env):
 
         # Delete sensors, vehicles and walkers
         self._clear_all_actors(['sensor.*', 'vehicle.*',
-                                'controller.ai.walker', 'walker.*'])
+                                'controller.ai.*', 'walker.*'])
 
         # Disable sync mode
         self._set_synchronous_mode(False)
@@ -292,7 +263,8 @@ class CarlaEnv(gym.Env):
         act = carla.VehicleControl(throttle=float(throttle), steer=float(-steer), brake=float(brake))
         self.ego.apply_control(act)
         spectator = self.world.get_spectator()
-        transform = carla.Transform(self.ego.get_transform().transform(carla.Location(x=-5, z=2)), self.ego.get_transform().rotation)
+        transform = carla.Transform(self.ego.get_transform().transform(carla.Location(x=-5, z=2)),
+                                    self.ego.get_transform().rotation)
         spectator.set_transform(transform)
 
         self.world.tick()
@@ -491,22 +463,6 @@ class CarlaEnv(gym.Env):
         birdeye = birdeye[0:self.display_size, :, :]
         birdeye = display_to_rgb(birdeye, self.obs_size)
 
-        # Roadmap
-        if self.pixor:
-            roadmap_render_types = ['roadmap']
-            if self.display_route:
-                roadmap_render_types.append('waypoints')
-            self.birdeye_render.render(self.display, roadmap_render_types)
-            roadmap = pygame.surfarray.array3d(self.display)
-            roadmap = roadmap[0:self.display_size, :, :]
-            roadmap = display_to_rgb(roadmap, self.obs_size)
-            # Add ego vehicle
-            for i in range(self.obs_size):
-                for j in range(self.obs_size):
-                    if abs(birdeye[i, j, 0] - 255) < 20 and abs(birdeye[i, j, 1] - 0) < 20 and abs(
-                            birdeye[i, j, 0] - 255) < 20:
-                        roadmap[i, j, :] = birdeye[i, j, :]
-
         # Display birdeye image
         birdeye_surface = rgb_to_display_surface(birdeye, self.display_size)
         self.display.blit(birdeye_surface, (0, 0))
@@ -566,42 +522,6 @@ class CarlaEnv(gym.Env):
         speed = np.sqrt(v.x ** 2 + v.y ** 2)
         state = np.array([lateral_dis, - delta_yaw, speed, self.vehicle_front])
 
-        if self.pixor:
-            ## Vehicle classification and regression maps (requires further normalization)
-            vh_clas = np.zeros((self.pixor_size, self.pixor_size))
-            vh_regr = np.zeros((self.pixor_size, self.pixor_size, 6))
-
-            # Generate the PIXOR image. Note in CARLA it is using left-hand coordinate
-            # Get the 6-dim geom parametrization in PIXOR, here we use pixel coordinate
-            for actor in self.world.get_actors().filter('vehicle.*'):
-                x, y, yaw, l, w = get_info(actor)
-                x_local, y_local, yaw_local = get_local_pose((x, y, yaw), (ego_x, ego_y, ego_yaw))
-                if actor.id != self.ego.id:
-                    if abs(y_local) < self.obs_range / 2 + 1 and x_local < self.obs_range - self.d_behind + 1 and x_local > -self.d_behind - 1:
-                        x_pixel, y_pixel, yaw_pixel, l_pixel, w_pixel = get_pixel_info(
-                            local_info=(x_local, y_local, yaw_local, l, w),
-                            d_behind=self.d_behind, obs_range=self.obs_range, image_size=self.pixor_size)
-                        cos_t = np.cos(yaw_pixel)
-                        sin_t = np.sin(yaw_pixel)
-                        logw = np.log(w_pixel)
-                        logl = np.log(l_pixel)
-                        pixels = get_pixels_inside_vehicle(
-                            pixel_info=(x_pixel, y_pixel, yaw_pixel, l_pixel, w_pixel),
-                            pixel_grid=self.pixel_grid)
-                        for pixel in pixels:
-                            vh_clas[pixel[0], pixel[1]] = 1
-                            dx = x_pixel - pixel[0]
-                            dy = y_pixel - pixel[1]
-                            vh_regr[pixel[0], pixel[1], :] = np.array(
-                                [cos_t, sin_t, dx, dy, logw, logl])
-
-            # Flip the image matrix so that the origin is at the left-bottom
-            vh_clas = np.flip(vh_clas, axis=0)
-            vh_regr = np.flip(vh_regr, axis=0)
-
-            # Pixor state, [x, y, cos(yaw), sin(yaw), speed]
-            pixor_state = [ego_x, ego_y, np.cos(ego_yaw), np.sin(ego_yaw), speed]
-
         obs = {
             'camera': camera.astype(np.uint8),
             'lidar': lidar.astype(np.uint8),
@@ -609,30 +529,9 @@ class CarlaEnv(gym.Env):
             'state': state,
         }
 
-        if self.pixor:
-            obs.update({
-                'roadmap': roadmap.astype(np.uint8),
-                'vh_clas': np.expand_dims(vh_clas, -1).astype(np.float32),
-                'vh_regr': vh_regr.astype(np.float32),
-                'pixor_state': pixor_state,
-            })
-
         return obs
 
     def _get_reward(self):
-        # https://fengb2-coder.github.io/AutonomousDriving.html
-
-        # v = self.ego.get_velocity()
-        # kmh = int(3.6 * math.sqrt(v.x ** 2 + v.y ** 2 + v.z ** 2))
-        #
-        # if len(self.collision_hist) != 0:
-        #     return -200
-        # # elif kmh < int(3.6 * self.desired_speed):
-        # elif kmh < 10:
-        #     return -1
-        # else:
-        #     return 3
-
         """Calculate the step reward."""
         # reward for speed tracking
         v = self.ego.get_velocity()
@@ -666,12 +565,22 @@ class CarlaEnv(gym.Env):
         # cost for lateral acceleration
         r_lat = - abs(self.ego.get_control().steer) * lspeed_lon ** 2
 
-        # if speed < 1:
-        #     speed = -5
+        # return 200 * r_collision + 2 * lspeed_lon + 10 * r_fast + 1 * r_out + r_steer * 5 + 0.2 * r_lat - 0.1
 
-        return speed
-        # return 20 * r_collision + 1 * lspeed_lon + 10 * r_fast + 1 * r_out + r_steer * 5 + 0.2 * r_lat - 0.1
-        # return 200 * r_collision + 3 * lspeed_lon + 10 * r_fast + 1 * r_out + r_steer * 5 + 0.2 * r_lat - 0.1
+        # model_2
+        # return 100 * r_collision + 3 * lspeed_lon + 10 * r_fast + 5 * r_out + r_steer * 1 + 0.2 * r_lat - 0.1
+
+        # model_3
+        # return 100 * r_collision + 1 * lspeed_lon + 10 * r_fast + 5 * r_out + r_steer * 5 + 0.2 * r_lat - 0.1
+
+
+
+        return 50 * r_collision + 2 * lspeed_lon + 10 * r_fast + 10 * r_out + r_steer * 5 + 0.2 * r_lat - 0.1
+
+
+        # default
+        # return 200 * r_collision + 1 * lspeed_lon + 10 * r_fast + 1 * r_out + r_steer * 5 + 0.2 * r_lat - 0.1
+
 
     def _terminal(self):
         """Calculate whether to terminate the current episode."""
@@ -707,4 +616,3 @@ class CarlaEnv(gym.Env):
                     if actor.type_id == 'controller.ai.walker':
                         actor.stop()
                     actor.destroy()
-                    
