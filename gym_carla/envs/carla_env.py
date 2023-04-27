@@ -74,14 +74,14 @@ class CarlaEnv(gym.Env):
         client = carla.Client('localhost', params['port'])
         client.set_timeout(15.0)
         self.world = client.load_world(params['town'])
-        # self.world = client.get_world()
+        self.map = self.world.get_map()
         print('Carla server connected!')
 
         # Set weather
-        self.world.set_weather(carla.WeatherParameters.ClearNoon)
+        self.world.set_weather(carla.WeatherParameters.CloudyNoon)
 
         # Get spawn points
-        self.vehicle_spawn_points = list(self.world.get_map().get_spawn_points())
+        self.vehicle_spawn_points = list(self.map.get_spawn_points())
         self.walker_spawn_points = []
         for i in range(self.number_of_walkers):
             spawn_point = carla.Transform()
@@ -571,11 +571,11 @@ class CarlaEnv(gym.Env):
         # return 100 * r_collision + 3 * lspeed_lon + 10 * r_fast + 5 * r_out + r_steer * 1 + 0.2 * r_lat - 0.1
 
         # model_3
-        # return 100 * r_collision + 1 * lspeed_lon + 10 * r_fast + 5 * r_out + r_steer * 5 + 0.2 * r_lat - 0.1
+        return 100 * r_collision + 1 * lspeed_lon + 10 * r_fast + 5 * r_out + r_steer * 5 + 0.2 * r_lat - 0.1
 
 
 
-        return 50 * r_collision + 2 * lspeed_lon + 10 * r_fast + 10 * r_out + r_steer * 5 + 0.2 * r_lat - 0.1
+        # return 50 * r_collision + 2 * lspeed_lon + 10 * r_fast + 10 * r_out + r_steer * 5 + 0.2 * r_lat - 0.1
 
 
         # default

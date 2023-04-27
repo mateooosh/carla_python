@@ -60,10 +60,11 @@ class DQNAgent:
             model.add(MaxPooling2D(pool_size=(2, 2)))
             model.add(Conv2D(32, kernel_size=(3, 3), activation='relu'))
             model.add(MaxPooling2D(pool_size=(2, 2)))
-            model.add(Dropout(0.2))
+            model.add(Dropout(0.4))
+            # większy dropout
             model.add(Flatten())
             model.add(Dense(64, activation='relu'))
-            model.add(Dropout(0.2))
+            model.add(Dropout(0.4))
             model.add(Dense(self.action_size, activation='linear'))
             model = Model(inputs=model.input, outputs=model.output)
             model.compile(loss="mse", optimizer=Adam(learning_rate=self.learning_rate), metrics=["accuracy"])
