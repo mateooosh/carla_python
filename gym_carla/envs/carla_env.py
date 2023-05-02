@@ -1,20 +1,15 @@
 from __future__ import division
 
 import copy
-import numpy as np
-import pygame
 import random
 import time
 
-from carla import ColorConverter
 from skimage.transform import resize
 
 import gym
 from gym import spaces
 from gym.utils import seeding
-import carla
 
-from carla_python.gym_carla.envs.render import BirdeyeRender
 from carla_python.gym_carla.envs.route_planner import RoutePlanner
 from carla_python.gym_carla.envs.misc import *
 
@@ -25,49 +20,32 @@ class CarlaEnv(gym.Env):
     def __init__(self, params):
         # parameters
         self.display_size = params['display_size']  # rendering screen size
-        self.max_past_step = params['max_past_step']
         self.number_of_vehicles = params['number_of_vehicles']
-        self.number_of_walkers = params['number_of_walkers']
         self.dt = params['dt']
-        self.task_mode = params['task_mode']
         self.max_time_episode = params['max_time_episode']
-        self.max_waypt = params['max_waypt']
-        self.obs_range = params['obs_range']
-        self.lidar_bin = params['lidar_bin']
-        self.d_behind = params['d_behind']
-        self.obs_size = int(self.obs_range / self.lidar_bin)
         self.out_lane_thres = params['out_lane_thres']
         self.desired_speed = params['desired_speed']
-        self.max_ego_spawn_times = params['max_ego_spawn_times']
-        self.display_route = params['display_route']
-
-        # Destination
-        if params['task_mode'] == 'roundabout':
-            self.dests = [[4.46, -61.46, 0], [-49.53, -2.89, 0], [-6.48, 55.47, 0], [35.96, 3.33, 0]]
-        else:
-            self.dests = None
+        self.max_waypt = params['max_waypt']
+        self.max_ego_spawn_times = 100
+        self.obs_size = self.display_size
+        self.dests = None
+        self.waypoints = []
 
         # action and observation spaces
         self.discrete = params['discrete']
         self.discrete_act = [params['discrete_acc'], params['discrete_steer']]  # acc, steer
         self.n_acc = len(self.discrete_act[0])
         self.n_steer = len(self.discrete_act[1])
-        if self.discrete:
-            self.action_space = spaces.Discrete(self.n_acc * self.n_steer)
-        else:
-            self.action_space = spaces.Box(np.array([params['continuous_accel_range'][0],
-                                                     params['continuous_steer_range'][0]]),
-                                           np.array([params['continuous_accel_range'][1],
-                                                     params['continuous_steer_range'][1]]),
-                                           dtype=np.float32)  # acc, steer
+        self.action_space = spaces.Discrete(self.n_acc * self.n_steer)
+
         observation_space_dict = {
             'camera': spaces.Box(low=0, high=255, shape=(self.obs_size, self.obs_size, 3), dtype=np.uint8),
-            'lidar': spaces.Box(low=0, high=255, shape=(self.obs_size, self.obs_size, 3), dtype=np.uint8),
-            'birdeye': spaces.Box(low=0, high=255, shape=(self.obs_size, self.obs_size, 3), dtype=np.uint8),
             'state': spaces.Box(np.array([-2, -1, -5, 0]), np.array([2, 1, 30, 1]), dtype=np.float32)
         }
 
         self.observation_space = spaces.Dict(observation_space_dict)
+
+
 
         # Connect to carla server and get world object
         print('connecting to Carla server...')
@@ -83,34 +61,21 @@ class CarlaEnv(gym.Env):
         # Get spawn points
         self.vehicle_spawn_points = list(self.map.get_spawn_points())
         self.walker_spawn_points = []
-        for i in range(self.number_of_walkers):
-            spawn_point = carla.Transform()
-            loc = self.world.get_random_location_from_navigation()
-            if (loc != None):
-                spawn_point.location = loc
-                self.walker_spawn_points.append(spawn_point)
 
         # Create the ego vehicle blueprint
-        self.ego_bp = self._create_vehicle_bluepprint(params['ego_vehicle_filter'], color='49,8,8')
+        self.ego_bp = self._create_vehicle_bluepprint(params['ego_vehicle_filter'], color='100,8,8')
 
         # Collision sensor
         self.collision_hist = []  # The collision history
         self.collision_hist_l = 1  # collision history length
         self.collision_bp = self.world.get_blueprint_library().find('sensor.other.collision')
 
-        # Lidar sensor
-        self.lidar_data = None
-        # self.lidar_height = 0.5
-        self.lidar_height = 2.1
-        self.lidar_trans = carla.Transform(carla.Location(x=0.0, y=0.0, z=self.lidar_height))
-        self.lidar_bp = self.world.get_blueprint_library().find('sensor.lidar.ray_cast')
-        self.lidar_bp.set_attribute('channels', '32')
-        self.lidar_bp.set_attribute('range', '5000')
-
         # Camera sensor
         self.camera_img = np.zeros((self.obs_size, self.obs_size, 3), dtype=np.uint8)
-        self.camera_trans = carla.Transform(carla.Location(x=1.5, z=1.7))
+        self.camera_trans = carla.Transform(carla.Location(x=1.4, z=1.7))
+        # self.camera_bp = self.world.get_blueprint_library().find('sensor.camera.rgb')
         self.camera_bp = self.world.get_blueprint_library().find('sensor.camera.semantic_segmentation')
+
         # Modify the attributes of the blueprint to set image resolution and field of view.
         self.camera_bp.set_attribute('image_size_x', str(self.obs_size))
         self.camera_bp.set_attribute('image_size_y', str(self.obs_size))
@@ -126,18 +91,20 @@ class CarlaEnv(gym.Env):
         self.reset_step = 0
         self.total_step = 0
 
-        # Initialize the renderer
-        self._init_renderer()
+        # init pygame
+        pygame.init()
+        self.display = pygame.display.set_mode((self.obs_size, self.obs_size), pygame.HWSURFACE | pygame.DOUBLEBUF)
+        self.display.fill((0, 0, 0))
+        pygame.display.flip()
+
 
     def reset(self):
         # Clear sensor objects
         self.collision_sensor = None
-        self.lidar_sensor = None
         self.camera_sensor = None
 
         # Delete sensors, vehicles and walkers
-        self._clear_all_actors(['sensor.*', 'vehicle.*',
-                                'controller.ai.*', 'walker.*'])
+        self._clear_all_actors(['sensor.*', 'vehicle.*', 'controller.ai.*', 'walker.*'])
 
         # Disable sync mode
         self._set_synchronous_mode(False)
@@ -155,26 +122,11 @@ class CarlaEnv(gym.Env):
             if self._try_spawn_random_vehicle_at(random.choice(self.vehicle_spawn_points), number_of_wheels=[4]):
                 count -= 1
 
-        # Spawn pedestrians
-        random.shuffle(self.walker_spawn_points)
-        count = self.number_of_walkers
-        if count > 0:
-            for spawn_point in self.walker_spawn_points:
-                if self._try_spawn_random_walker_at(spawn_point):
-                    count -= 1
-                if count <= 0:
-                    break
-        while count > 0:
-            if self._try_spawn_random_walker_at(random.choice(self.walker_spawn_points)):
-                count -= 1
 
         # Get actors polygon list
         self.vehicle_polygons = []
         vehicle_poly_dict = self._get_actor_polygons('vehicle.*')
         self.vehicle_polygons.append(vehicle_poly_dict)
-        self.walker_polygons = []
-        walker_poly_dict = self._get_actor_polygons('walker.*')
-        self.walker_polygons.append(walker_poly_dict)
 
         # Spawn the ego vehicle
         ego_spawn_times = 0
@@ -182,12 +134,8 @@ class CarlaEnv(gym.Env):
             if ego_spawn_times > self.max_ego_spawn_times:
                 self.reset()
 
-            if self.task_mode == 'random':
-                transform = random.choice(self.vehicle_spawn_points)
-            if self.task_mode == 'roundabout':
-                self.start = [52.1 + np.random.uniform(-5, 5), -4.2, 178.66]  # random
-                # self.start=[52.1,-4.2, 178.66] # static
-                transform = set_carla_transform(self.start)
+            transform = random.choice(self.vehicle_spawn_points)
+
             if self._try_spawn_ego_vehicle_at(transform):
                 break
             else:
@@ -207,12 +155,6 @@ class CarlaEnv(gym.Env):
 
         self.collision_hist = []
 
-        # Add lidar sensor
-        self.lidar_sensor = self.world.spawn_actor(self.lidar_bp, self.lidar_trans, attach_to=self.ego)
-        self.lidar_sensor.listen(lambda data: get_lidar_data(data))
-
-        def get_lidar_data(data):
-            self.lidar_data = data
 
         # Add camera sensor
         self.camera_sensor = self.world.spawn_actor(self.camera_bp, self.camera_trans, attach_to=self.ego)
@@ -225,6 +167,11 @@ class CarlaEnv(gym.Env):
             array = array[:, :, :3]
             array = array[:, :, ::-1]
             self.camera_img = array
+            # array = np.frombuffer(data.raw_data, dtype=np.dtype("uint8"))
+            # array = np.reshape(array, (data.height, data.width, 4))
+            # array = array[:, :, :3]
+            # array = array[:, :, ::-1]
+            # self.camera_img = array
 
         # Update timesteps
         self.time_step = 0
@@ -235,10 +182,16 @@ class CarlaEnv(gym.Env):
         self.world.apply_settings(self.settings)
 
         self.routeplanner = RoutePlanner(self.ego, self.max_waypt)
-        self.waypoints, _, self.vehicle_front = self.routeplanner.run_step()
 
-        # Set ego information for render
-        self.birdeye_render.set_hero(self.ego, self.ego.id)
+        self.waypoints, _, self.vehicle_front = self.routeplanner.run_step()
+        # [x, y, yaw]
+        for i in range(len(self.waypoints) - 1):
+            # self.world.debug.draw_string(carla.Location(self.waypoints[i][0], self.waypoints[i][1], 0.1),
+            #                              'O', color=carla.Color(r=0, g=255, b=0), life_time=0.5)
+            start = carla.Location(self.waypoints[i][0], self.waypoints[i][1], self.waypoints[i][3])
+            stop = carla.Location(self.waypoints[i + 1][0], self.waypoints[i + 1][1], self.waypoints[i + 1][3])
+            self.world.debug.draw_line(start, stop, thickness=0.9,
+                                  color=carla.Color(r=0, g=1, b=0), life_time=0.5)
 
         return self._get_obs()
 
@@ -263,24 +216,22 @@ class CarlaEnv(gym.Env):
         act = carla.VehicleControl(throttle=float(throttle), steer=float(-steer), brake=float(brake))
         self.ego.apply_control(act)
         spectator = self.world.get_spectator()
+        # transform = carla.Transform(self.ego.get_transform().transform(carla.Location(x=0.8, z=1.2)),
+        #                             self.ego.get_transform().rotation)
         transform = carla.Transform(self.ego.get_transform().transform(carla.Location(x=-5, z=2)),
                                     self.ego.get_transform().rotation)
         spectator.set_transform(transform)
 
         self.world.tick()
 
-        # Append actors polygon list
-        vehicle_poly_dict = self._get_actor_polygons('vehicle.*')
-        self.vehicle_polygons.append(vehicle_poly_dict)
-        while len(self.vehicle_polygons) > self.max_past_step:
-            self.vehicle_polygons.pop(0)
-        walker_poly_dict = self._get_actor_polygons('walker.*')
-        self.walker_polygons.append(walker_poly_dict)
-        while len(self.walker_polygons) > self.max_past_step:
-            self.walker_polygons.pop(0)
-
         # route planner
         self.waypoints, _, self.vehicle_front = self.routeplanner.run_step()
+
+        for i in range(len(self.waypoints) - 1):
+            start = carla.Location(self.waypoints[i][0], self.waypoints[i][1], self.waypoints[i][3])
+            stop = carla.Location(self.waypoints[i + 1][0], self.waypoints[i + 1][1], self.waypoints[i + 1][3])
+            self.world.debug.draw_line(start, stop, thickness=0.9,
+                                       color=carla.Color(r=0, g=1, b=0), life_time=0.5)
 
         # state information
         info = {
@@ -321,23 +272,6 @@ class CarlaEnv(gym.Env):
                 color = random.choice(bp.get_attribute('color').recommended_values)
             bp.set_attribute('color', color)
         return bp
-
-    def _init_renderer(self):
-        """Initialize the birdeye view renderer.
-        """
-        pygame.init()
-        self.display = pygame.display.set_mode(
-            (self.display_size * 2, self.display_size),
-            pygame.HWSURFACE | pygame.DOUBLEBUF)
-
-        pixels_per_meter = self.display_size / self.obs_range
-        pixels_ahead_vehicle = (self.obs_range / 2 - self.d_behind) * pixels_per_meter
-        birdeye_params = {
-            'screen_size': [self.display_size, self.display_size],
-            'pixels_per_meter': pixels_per_meter,
-            'pixels_ahead_vehicle': pixels_ahead_vehicle
-        }
-        self.birdeye_render = BirdeyeRender(self.world, birdeye_params)
 
     def _set_synchronous_mode(self, synchronous=True):
         """Set whether to use the synchronous mode.
@@ -449,63 +383,11 @@ class CarlaEnv(gym.Env):
 
     def _get_obs(self):
         """Get the observations."""
-        ## Birdeye rendering
-        self.birdeye_render.vehicle_polygons = self.vehicle_polygons
-        self.birdeye_render.walker_polygons = self.walker_polygons
-        self.birdeye_render.waypoints = self.waypoints
-
-        # birdeye view with roadmap and actors
-        birdeye_render_types = ['roadmap', 'actors']
-        if self.display_route:
-            birdeye_render_types.append('waypoints')
-        self.birdeye_render.render(self.display, birdeye_render_types)
-        birdeye = pygame.surfarray.array3d(self.display)
-        birdeye = birdeye[0:self.display_size, :, :]
-        birdeye = display_to_rgb(birdeye, self.obs_size)
-
-        # Display birdeye image
-        birdeye_surface = rgb_to_display_surface(birdeye, self.display_size)
-        self.display.blit(birdeye_surface, (0, 0))
-
-        ## Lidar image generation
-        point_cloud = []
-        # Get point cloud data
-        for location in self.lidar_data:
-            point_cloud.append([location.point.x - 4, location.point.y - 4, location.point.z])
-        point_cloud = np.array(point_cloud)
-        # Separate the 3D space to bins for point cloud, x and y is set according to self.lidar_bin,
-        # and z is set to be two bins.
-        y_bins = np.arange(-(self.obs_range - self.d_behind), self.d_behind + self.lidar_bin, self.lidar_bin)
-        x_bins = np.arange(-self.obs_range / 2, self.obs_range / 2 + self.lidar_bin, self.lidar_bin)
-        z_bins = [-self.lidar_height - 1, -self.lidar_height + 0.25, 1]
-        # Get lidar image according to the bins
-        lidar, _ = np.histogramdd(point_cloud, bins=(x_bins, y_bins, z_bins))
-        lidar[:, :, 0] = np.array(lidar[:, :, 0] > 0, dtype=np.uint8)
-        lidar[:, :, 1] = np.array(lidar[:, :, 1] > 0, dtype=np.uint8)
-        lidar = np.rot90(lidar, 2)
-        lidar = np.fliplr(lidar)
-        # Add the waypoints to lidar image
-        if self.display_route:
-            wayptimg = (birdeye[:, :, 0] <= 10) * (birdeye[:, :, 1] <= 10) * (birdeye[:, :, 2] >= 240)
-        else:
-            wayptimg = birdeye[:, :, 0] < 0  # Equal to a zero matrix
-        wayptimg = np.expand_dims(wayptimg, axis=2)
-        # wayptimg = np.fliplr(np.rot90(wayptimg, 3))
-
-        # Get the final lidar image
-        lidar = np.concatenate((lidar, wayptimg), axis=2)
-        # lidar = np.flip(lidar, axis=1)
-        # lidar = np.rot90(lidar, 1)
-        lidar = lidar * 255
-
-        # # Display lidar image
-        # lidar_surface = rgb_to_display_surface(lidar, self.display_size)
-        # self.display.blit(lidar_surface, (self.display_size * 2, 0))
 
         ## Display camera image
         camera = resize(self.camera_img, (self.obs_size, self.obs_size)) * 255
         camera_surface = rgb_to_display_surface(camera, self.display_size)
-        self.display.blit(camera_surface, (self.display_size, 0))
+        self.display.blit(camera_surface, (0, 0))
 
         # Display on pygame
         pygame.display.flip()
@@ -524,8 +406,6 @@ class CarlaEnv(gym.Env):
 
         obs = {
             'camera': camera.astype(np.uint8),
-            'lidar': lidar.astype(np.uint8),
-            'birdeye': birdeye.astype(np.uint8),
             'state': state,
         }
 
@@ -565,21 +445,18 @@ class CarlaEnv(gym.Env):
         # cost for lateral acceleration
         r_lat = - abs(self.ego.get_control().steer) * lspeed_lon ** 2
 
-        # return 200 * r_collision + 2 * lspeed_lon + 10 * r_fast + 1 * r_out + r_steer * 5 + 0.2 * r_lat - 0.1
-
-        # model_2
-        # return 100 * r_collision + 3 * lspeed_lon + 10 * r_fast + 5 * r_out + r_steer * 1 + 0.2 * r_lat - 0.1
-
-        # model_3
-        return 100 * r_collision + 1 * lspeed_lon + 10 * r_fast + 5 * r_out + r_steer * 5 + 0.2 * r_lat - 0.1
-
-
-
-        # return 50 * r_collision + 2 * lspeed_lon + 10 * r_fast + 10 * r_out + r_steer * 5 + 0.2 * r_lat - 0.1
-
-
         # default
         # return 200 * r_collision + 1 * lspeed_lon + 10 * r_fast + 1 * r_out + r_steer * 5 + 0.2 * r_lat - 0.1
+
+        # # model w miare
+        # return 50 * r_collision + 1 * lspeed_lon + 10 * r_fast + 20 * r_out + r_steer * 5 + 0.2 * r_lat - 0.1
+
+        r_dis = 0
+        if abs(dis) > 0.3:
+            r_dis = abs(dis)
+
+        # # model w miare2
+        return 50 * r_collision + 1 * lspeed_lon + 5 * r_fast + 10 * r_out + 3 * abs(self.ego.get_control().steer) - r_dis * 3 - 0.1
 
 
     def _terminal(self):

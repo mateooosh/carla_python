@@ -12,6 +12,32 @@ import carla
 from enum import IntEnum
 import networkx as nx
 
+LABELS_MAP = {
+        (0, 0, 0): 0,  # "Unlabeled",
+        (70, 70, 70): 1,  # "Building",
+        (100, 40, 40): 2,  # "Fence",
+        (55, 90, 80): 3,  # "Other",
+        (220, 20, 60): 4,  # "Pedestrian",
+        (153, 153, 153): 5,  # "Pole",
+        (157, 234, 50): 6,  # "RoadLine",
+        (128, 64, 128): 7,  # "Road",
+        (244, 35, 232): 8,  # "SideWalk",
+        (107, 142, 35): 9,  # "Vegetation",
+        (0, 0, 142): 10,  # "Vehicles",
+        (102, 102, 156): 11,  # "Wall",
+        (220, 220, 0): 12,  # "TrafficSign",
+        (70, 130, 180): 13,  # "Sky",
+        (81, 0, 81): 14,  # "Ground",
+        (150, 100, 100): 15,  # "Bridge",
+        (230, 150, 140): 16,  # "RailTrack",
+        (180, 165, 180): 17,  # "GuardRail",
+        (250, 170, 30): 18,  # "TrafficLight",
+        (110, 190, 160): 19,  # "Static",
+        (170, 120, 50): 20,  # "Dynamic",
+        (45, 60, 150): 21,  # "Water",
+        (145, 170, 100): 22,  # "Terrain",
+    }
+
 def vector(location_1, location_2):
     """
     Returns the unit vector from location_1 to location_2
@@ -25,6 +51,7 @@ def vector(location_1, location_2):
 
     return [x / norm, y / norm, z / norm]
 
+
 class RoadOption(IntEnum):
     """
     RoadOption represents the possible topological configurations when moving from a segment of lane to other.
@@ -37,6 +64,7 @@ class RoadOption(IntEnum):
     LANEFOLLOW = 4
     CHANGELANELEFT = 5
     CHANGELANERIGHT = 6
+
 
 class GlobalRoutePlanner(object):
     """
@@ -72,7 +100,7 @@ class GlobalRoutePlanner(object):
 
         for i in range(len(route) - 1):
             road_option = self._turn_decision(i, route)
-            edge = self._graph.edges[route[i], route[i+1]]
+            edge = self._graph.edges[route[i], route[i + 1]]
             path = []
 
             if edge['type'] != RoadOption.LANEFOLLOW and edge['type'] != RoadOption.VOID:
@@ -82,7 +110,7 @@ class GlobalRoutePlanner(object):
                 next_edge = self._graph.edges[n1, n2]
                 if next_edge['path']:
                     closest_index = self._find_closest_in_list(current_waypoint, next_edge['path'])
-                    closest_index = min(len(next_edge['path'])-1, closest_index+5)
+                    closest_index = min(len(next_edge['path']) - 1, closest_index + 5)
                     current_waypoint = next_edge['path'][closest_index]
                 else:
                     current_waypoint = next_edge['exit_waypoint']
@@ -94,9 +122,11 @@ class GlobalRoutePlanner(object):
                 for waypoint in path[closest_index:]:
                     current_waypoint = waypoint
                     route_trace.append((current_waypoint, road_option))
-                    if len(route)-i <= 2 and waypoint.transform.location.distance(destination) < 2*self._sampling_resolution:
+                    if len(route) - i <= 2 and waypoint.transform.location.distance(
+                            destination) < 2 * self._sampling_resolution:
                         break
-                    elif len(route)-i <= 2 and current_waypoint.road_id == destination_waypoint.road_id and current_waypoint.section_id == destination_waypoint.section_id and current_waypoint.lane_id == destination_waypoint.lane_id:
+                    elif len(
+                            route) - i <= 2 and current_waypoint.road_id == destination_waypoint.road_id and current_waypoint.section_id == destination_waypoint.section_id and current_waypoint.lane_id == destination_waypoint.lane_id:
                         destination_index = self._find_closest_in_list(destination_waypoint, path)
                         if closest_index > destination_index:
                             break
@@ -220,7 +250,7 @@ class GlobalRoutePlanner(object):
                 if section_id not in self._road_id_to_edge[road_id]:
                     self._road_id_to_edge[road_id][section_id] = dict()
                 n1 = self._id_map[exit_xyz]
-                n2 = -1*count_loose_ends
+                n2 = -1 * count_loose_ends
                 self._road_id_to_edge[road_id][section_id][lane_id] = (n1, n2)
                 next_wp = end_wp.next(hop_resolution)
                 path = []
@@ -304,7 +334,7 @@ class GlobalRoutePlanner(object):
         """
         l1 = np.array(self._graph.nodes[n1]['vertex'])
         l2 = np.array(self._graph.nodes[n2]['vertex'])
-        return np.linalg.norm(l1-l2)
+        return np.linalg.norm(l1 - l2)
 
     def _path_search(self, origin, destination):
         """
@@ -333,7 +363,7 @@ class GlobalRoutePlanner(object):
 
         last_intersection_edge = None
         last_node = None
-        for node1, node2 in [(route[i], route[i+1]) for i in range(index, len(route)-1)]:
+        for node1, node2 in [(route[i], route[i + 1]) for i in range(index, len(route) - 1)]:
             candidate_edge = self._graph.edges[node1, node2]
             if node1 == route[index]:
                 last_intersection_edge = candidate_edge
@@ -352,9 +382,9 @@ class GlobalRoutePlanner(object):
         """
 
         decision = None
-        previous_node = route[index-1]
+        previous_node = route[index - 1]
         current_node = route[index]
-        next_node = route[index+1]
+        next_node = route[index + 1]
         next_edge = self._graph.edges[current_node, next_node]
         if index > 0:
             if self._previous_decision != RoadOption.VOID \
@@ -380,12 +410,12 @@ class GlobalRoutePlanner(object):
                     for neighbor in self._graph.successors(current_node):
                         select_edge = self._graph.edges[current_node, neighbor]
                         if select_edge['type'] == RoadOption.LANEFOLLOW:
-                            if neighbor != route[index+1]:
+                            if neighbor != route[index + 1]:
                                 sv = select_edge['net_vector']
                                 cross_list.append(np.cross(cv, sv)[2])
                     next_cross = np.cross(cv, nv)[2]
                     deviation = math.acos(np.clip(
-                        np.dot(cv, nv)/(np.linalg.norm(cv)*np.linalg.norm(nv)), -1.0, 1.0))
+                        np.dot(cv, nv) / (np.linalg.norm(cv) * np.linalg.norm(nv)), -1.0, 1.0))
                     if not cross_list:
                         cross_list.append(0)
                     if deviation < threshold:
@@ -420,17 +450,27 @@ class GlobalRoutePlanner(object):
         return closest_index
 
 
+def getOnlyR(camera, display_size):
+    return np.resize(camera[:, :, 0], (display_size, display_size))
+
+def get_labels(image):
+    labels = np.zeros((image.shape[0], image.shape[1]), dtype=np.float)
+    for i in range(image.shape[0]):
+        for j in range(image.shape[1]):
+            pixel_color = tuple(image[i, j])
+            labels[i, j] = LABELS_MAP.get(pixel_color, 0) / len(LABELS_MAP.keys())
+    return labels
 
 def main():
     # parameters for the gym_carla environment
     params = {
         'number_of_vehicles': 40,  # 100
         'number_of_walkers': 0,
-        'display_size': 256,  # screen size of bird-eye render
+        'display_size': 128,  # screen size of bird-eye render
         'max_past_step': 1,  # the number of past steps to draw
         'dt': 0.1,  # time interval between two frames
         'discrete': True,  # whether to use discrete control space
-        'discrete_acc': [-1.0, 3.0],  # discrete value of accelerations
+        'discrete_acc': [-1.0, 2.0],  # discrete value of accelerations
         'discrete_steer': [-0.3, 0.0, 0.3],  # discrete value of steering angles
         'continuous_accel_range': [-3.0, 3.0],  # continuous acceleration range
         'continuous_steer_range': [-0.3, 0.3],  # continuous steering angle range
@@ -438,36 +478,43 @@ def main():
         'port': 2000,  # connection port
         'town': 'Town07_Opt',  # which town to simulate
         'task_mode': 'random',  # mode of the task, [random, roundabout (only for Town03)]
+        # 'max_time_episode': 100,  # maximum timesteps per episode
         'max_time_episode': 100,  # maximum timesteps per episode
-        'max_waypt': 12,  # maximum number of waypoints
+        'max_waypt': 24,  # maximum number of waypoints
         'obs_range': 32,  # observation range (meter)
         'lidar_bin': 0.125,  # bin size of lidar sensor (meter)   0.125
         'd_behind': 12,  # distance behind the ego vehicle (meter)
-        'out_lane_thres': 1.0,  # threshold for out of lane
+        'out_lane_thres': 0.7,  # threshold for out of lane
+        # 'out_lane_thres': 1.0,  # threshold for out of lane
+        # 'desired_speed': 5,  # desired speed (m/s)
         'desired_speed': 8,  # desired speed (m/s)
         'max_ego_spawn_times': 200,  # maximum times to spawn ego vehicle
         'display_route': True  # whether to render the desired route
     }
 
-    episodes = 200
-    batch_size = 32
-    keep_learning = True
+    episodes = 25
+    batch_size = 50
+    keep_learning = False
     rewards = np.loadtxt('txt/rewards.txt') if (keep_learning == True) else np.asarray([])
     avg_rewards = np.loadtxt('txt/avg_rewards.txt') if (keep_learning == True) else np.asarray([])
     steps_per_episode = np.loadtxt('txt/steps_per_episode.txt') if (keep_learning == True) else np.asarray([])
     first_episode = 1 + len(rewards)
-    neural_network = 'LeNet'
+    neural_network = 'model_w_miare2'
 
     # Set gym-carla environment
     env = CarlaEnv(params)
     agent = DQNAgent(6, neural_network)
     if keep_learning:
-        agent.load('model_output/weights_4500.hdf5')
+        agent.load('model_output/weights_0675.hdf5')
 
     for e in range(first_episode, first_episode + episodes):
         state = env.reset()
-        state = np.concatenate((state['birdeye'], state['camera']), axis=1)
-        state = np.expand_dims(state, axis=0)
+
+        segmentation_image = state['camera']
+        labels = get_labels(segmentation_image)
+        state['camera'] = np.resize(labels, (segmentation_image.shape[0], segmentation_image.shape[1], 1))
+
+        state = [np.expand_dims(state['camera'], axis=0), np.expand_dims(state['state'], axis=0)]
 
         done = False
         total_reward = 0
@@ -475,9 +522,13 @@ def main():
         while not done:
             action = agent.act(state)
             next_state, reward, done, _ = env.step(action)
+            segmentation_image = next_state['camera']
+            labels = get_labels(segmentation_image)
+            next_state['camera'] = np.resize(labels, (segmentation_image.shape[0], segmentation_image.shape[1], 1))
+
             print('Episode: ', e, ' | Action: ', action, ' | Reward: ', reward)
-            next_state = np.concatenate((next_state['birdeye'], next_state['camera']), axis=1)
-            next_state = np.expand_dims(next_state, axis=0)
+
+            next_state = [np.expand_dims(next_state['camera'], axis=0), np.expand_dims(next_state['state'], axis=0)]
 
             total_reward += reward
             steps += 1
@@ -494,20 +545,25 @@ def main():
         if len(agent.memory) > batch_size:
             agent.train(batch_size)
 
-        if e % 20 == 0:
+        if e % 25 == 0:
             agent.save("model_output/weights_" + '{:04d}'.format(e) + ".hdf5")
 
-            # plot steps per epoch
-            plot(steps_per_episode, 'Steps per episode', './plots/steps_per_episode.png')
+            # # plot steps per epoch
+            # plot(steps_per_episode, 'Steps per episode', './plots/steps_per_episode.png')
             np.savetxt('./txt/steps_per_episode.txt', steps_per_episode, fmt='%.2f')
 
-            # plot average rewards
-            plot(avg_rewards, 'Average Reward', './plots/avg_rewards.png')
+            # # plot average rewards
+            # plot(avg_rewards, 'Average Reward', './plots/avg_rewards.png')
             np.savetxt('./txt/avg_rewards.txt', avg_rewards, fmt='%.2f')
 
-            # plot rewards
-            plot(rewards, 'Reward', './plots/rewards.png')
+            # # plot rewards
+            # plot(rewards, 'Reward', './plots/rewards.png')
             np.savetxt('./txt/rewards.txt', rewards, fmt='%.2f')
+
+        if e % 5 == 0:
+            plot(steps_per_episode, 'Steps per episode', './plots/steps_per_episode.png')
+            plot(avg_rewards, 'Average Reward', './plots/avg_rewards.png')
+            plot(rewards, 'Reward', './plots/rewards.png')
 
     print(rewards)
 
@@ -526,44 +582,19 @@ def plot(array, ylabel, path):
     plt.show()
 
 
-def test():
-    client = carla.Client("localhost", 2000)
-    client.set_timeout(10)
-    world = client.load_world('Town07')
-    world.set_weather(carla.WeatherParameters.ClearNoon)
-    amap = world.get_map()
-    sampling_resolution = 2
-    grp = GlobalRoutePlanner(amap, sampling_resolution)
-    spawn_points = world.get_map().get_spawn_points()
-    a = carla.Location(spawn_points[49].location)
-    b = carla.Location(spawn_points[100].location)
-    w1 = grp.trace_route(a, b)  # there are other functions can be used to generate a route in GlobalRoutePlanner.
-
-    for i in range(len(w1) - 1):
-        world.debug.draw_line(w1[i][0].transform.location, w1[i + 1][0].transform.location,  thickness=0.7, color=carla.Color(r=0, g=0, b=0), life_time=1000.0)
-        # world.debug.draw_string(w1[i][0].transform.location, 'O', color=carla.Color(r=0, g=255, b=0), life_time=1000.0,
-        #                         persistent_lines=True)
-
-        # world.debug.draw_point(w1[i][0].transform.location, color=carla.Color(r=0, g=0, b=255), life_time=1000.0)
-
-    blueprint_library = world.get_blueprint_library()
-    # vehicle_bp = blueprint_library.find('vehicle.tesla.model3')
-    vehicle_bp = blueprint_library.find('vehicle.mercedes.coupe_2020')
-    spawn_point = spawn_points[49]
-    vehicle = world.spawn_actor(vehicle_bp, spawn_point)
-    print(vehicle)
-    print(vehicle.get_transform())
-    print(spawn_point)
-    spectator = world.get_spectator()
-    transform = carla.Transform(vehicle.get_transform().transform(carla.Location(x=0.8, z=1.2)),
-                                vehicle.get_transform().rotation)
-    print(w1[0])
-    spectator.set_transform(transform)
 
 if __name__ == '__main__':
     print("Num GPUs Available: ", tf.config.list_physical_devices())
     start = datetime.datetime.now()
-    test()
+    main()
+
+    # segmentation_image = np.array([[[45, 60, 150], [100, 40, 40]], [[45, 60, 150], [45, 60, 150]]])
+    #
+    # labels = get_labels(segmentation_image)
+    # image_array = segmentation_image
+    # r_array = image_array[:, :, 0]
+    # test = np.resize(labels, (segmentation_image.shape[0], segmentation_image.shape[1], 1))
+
     stop = datetime.datetime.now()
     print(start)
     print(stop)

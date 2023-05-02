@@ -24,8 +24,8 @@ class RoutePlanner:
         self._world = self._vehicle.get_world()
         self._map = self._world.get_map()
 
-        self._sampling_radius = 5
-        self._min_distance = 4
+        self._sampling_radius = 3
+        self._min_distance = 2
 
         self._target_waypoint = None
         self._buffer_size = buffer_size
@@ -104,7 +104,7 @@ class RoutePlanner:
 
         for i, (waypoint, _) in enumerate(self._waypoint_buffer):
             waypoints.append(
-                [waypoint.transform.location.x, waypoint.transform.location.y, waypoint.transform.rotation.yaw])
+                [waypoint.transform.location.x, waypoint.transform.location.y, waypoint.transform.rotation.yaw, waypoint.transform.location.z])
 
         # current vehicle waypoint
         self._current_waypoint = self._map.get_waypoint(self._vehicle.get_location())
