@@ -17,48 +17,19 @@ IM_WIDTH = 128
 class DQNAgent:
     def __init__(self, action_size, neural_network):
         self.action_size = action_size
-        self.memory = deque(maxlen=2000)
+        self.memory = deque(maxlen=1000)
         self.gamma = 0.95
         # self.epsilon = 1 if keep_learing else 0.05
         self.epsilon = 1.0
-        self.epsilon_decay = 0.998
+        self.epsilon_decay = 0.9985
         # self.epsilon_min = 0.01
-        self.epsilon_min = 0.3
+        self.epsilon_min = 0.2
         self.learning_rate = 0.001
         self.model = self._build_model(neural_network)
 
     def _build_model(self, neural_network):
         # LeNet-5
         if neural_network == 'LeNet':
-            # Definiowanie modelu
-            # model = Sequential()
-            # # Warstwa konwolucyjna z 6 filtrami 5x5 i funkcją aktywacji relu
-            # model.add(Conv2D(6, (5, 5), activation='relu', input_shape=(IM_HEIGHT, IM_WIDTH, 1)))
-            #
-            # # Warstwa 2x2 MaxPooling
-            # model.add(MaxPooling2D(pool_size=(2, 2)))
-            #
-            # # Warstwa konwolucyjna z 16 filtrami 5x5 i funkcją aktywacji relu
-            # model.add(Conv2D(16, (5, 5), activation='relu'))
-            #
-            # # Warstwa 2x2 MaxPooling
-            # model.add(MaxPooling2D(pool_size=(2, 2)))
-            #
-            # # Przekształcenie macierzy w jednowymiarowy wektor
-            # model.add(Flatten())
-            #
-            # # Warstwa gęsta z 120 neuronami i funkcją aktywacji relu
-            # model.add(Dense(120, activation='relu'))
-            #
-            # # Warstwa gęsta z 84 neuronami i funkcją aktywacji relu
-            # model.add(Dense(84, activation='relu'))
-            #
-            # # Warstwa wyjściowa z 1 neuronem i funkcją aktywacji sigmoid
-            # model.add(Dense(1, activation='sigmoid'))
-
-
-
-
             # pierwsze wejście dla obrazów
             input_image = Input(shape=(IM_HEIGHT, IM_WIDTH, 1))
 
@@ -141,31 +112,58 @@ class DQNAgent:
             model.summary()
             return model
 
-        elif neural_network == 'model_w_miare2':
-            # pierwsze wejście dla obrazów
-            input_image = Input(shape=(IM_HEIGHT, IM_WIDTH, 1))
+        elif neural_network == 'model_2':
+            input_image = Input(shape=(IM_HEIGHT, IM_WIDTH, 3))
 
-            # warstwy konwolucyjne dla obrazów
-            conv1 = Conv2D(32, (3, 3), activation='relu')(input_image)
-            p1 = MaxPooling2D(pool_size=(2, 2))(conv1)
-            conv2 = Conv2D(32, (3, 3), activation='relu')(p1)
+            conv1 = Conv2D(6, (4, 4), activation='relu')(input_image)
+            p1 = MaxPooling2D(pool_size=(3, 3))(conv1)
+            conv2 = Conv2D(16, (3, 3), activation='relu')(p1)
             p2 = MaxPooling2D(pool_size=(2, 2))(conv2)
-            d1 = Dropout(0.4)(p2)
+            d1 = Dropout(0.3)(p2)
             flatten = Flatten()(d1)
 
             # drugie wejście dla wektorów
             input_vector = Input(shape=(4,))
 
             # warstwy gęste dla wektorów
-            dense1 = Dense(64, activation='relu')(input_vector)
+            dense1 = Dense(128, activation='relu')(input_vector)
 
             # łączenie dwóch ścieżek
             concat = concatenate([flatten, dense1])
 
             # wyjście
-            dense4 = Dense(128, activation='relu')(concat)
-            dense5 = Dense(64, activation='relu')(dense4)
-            d2 = Dropout(0.4)(dense5)
+            dense2 = Dense(160, activation='relu')(concat)
+            dense3 = Dense(80, activation='relu')(dense2)
+            d2 = Dropout(0.3)(dense3)
+            output = Dense(self.action_size, activation='linear')(d2)
+
+            model = Model(inputs=[input_image, input_vector], outputs=output)
+            model.compile(loss="mse", optimizer=Adam(learning_rate=self.learning_rate), metrics=["accuracy"])
+            model.summary()
+            return model
+
+        elif neural_network == 'model_3':
+            input_image = Input(shape=(IM_HEIGHT, IM_WIDTH, 3))
+
+            conv1 = Conv2D(16, (8, 8), activation='relu', padding='same')(input_image)
+            p1 = AveragePooling2D(pool_size=(5, 5), strides=(3, 3), padding='same')(conv1)
+            conv2 = Conv2D(32, (4, 4), activation='relu')(p1)
+            p2 = AveragePooling2D(pool_size=(5, 5), strides=(3, 3), padding='same')(conv2)
+            d1 = Dropout(0.3)(p2)
+            flatten = Flatten()(d1)
+
+            # drugie wejście dla wektorów
+            input_vector = Input(shape=(4,))
+
+            # warstwy gęste dla wektorów
+            dense1 = Dense(128, activation='relu')(input_vector)
+
+            # łączenie dwóch ścieżek
+            concat = concatenate([flatten, dense1])
+
+            # wyjście
+            dense2 = Dense(256, activation='relu')(concat)
+            d2 = Dropout(0.2)(dense2)
             output = Dense(self.action_size, activation='linear')(d2)
 
             model = Model(inputs=[input_image, input_vector], outputs=output)
@@ -203,4 +201,4 @@ class DQNAgent:
 
     def load(self, name):
         self.model.load_weights(name)
-        self.epsilon = 0.3
+        self.epsilon = self.epsilon_min

@@ -72,7 +72,7 @@ class CarlaEnv(gym.Env):
 
         # Camera sensor
         self.camera_img = np.zeros((self.obs_size, self.obs_size, 3), dtype=np.uint8)
-        self.camera_trans = carla.Transform(carla.Location(x=1.4, z=1.7))
+        self.camera_trans = carla.Transform(carla.Location(x=1.68, z=1.7))
         # self.camera_bp = self.world.get_blueprint_library().find('sensor.camera.rgb')
         self.camera_bp = self.world.get_blueprint_library().find('sensor.camera.semantic_segmentation')
 
@@ -190,8 +190,8 @@ class CarlaEnv(gym.Env):
             #                              'O', color=carla.Color(r=0, g=255, b=0), life_time=0.5)
             start = carla.Location(self.waypoints[i][0], self.waypoints[i][1], self.waypoints[i][3])
             stop = carla.Location(self.waypoints[i + 1][0], self.waypoints[i + 1][1], self.waypoints[i + 1][3])
-            self.world.debug.draw_line(start, stop, thickness=0.9,
-                                  color=carla.Color(r=0, g=1, b=0), life_time=0.5)
+            self.world.debug.draw_line(start, stop, thickness=1.5,
+                                  color=carla.Color(0, 1, 0), life_time=0.5)
 
         return self._get_obs()
 
@@ -230,8 +230,8 @@ class CarlaEnv(gym.Env):
         for i in range(len(self.waypoints) - 1):
             start = carla.Location(self.waypoints[i][0], self.waypoints[i][1], self.waypoints[i][3])
             stop = carla.Location(self.waypoints[i + 1][0], self.waypoints[i + 1][1], self.waypoints[i + 1][3])
-            self.world.debug.draw_line(start, stop, thickness=0.9,
-                                       color=carla.Color(r=0, g=1, b=0), life_time=0.5)
+            self.world.debug.draw_line(start, stop, thickness=1.5,
+                                       color=carla.Color(0, 1, 0), life_time=0.5)
 
         # state information
         info = {
@@ -437,6 +437,13 @@ class CarlaEnv(gym.Env):
         lspeed = np.array([v.x, v.y])
         lspeed_lon = np.dot(lspeed, w)
 
+        accel = self.ego.get_control().throttle
+        if lspeed_lon < 0.3:
+            lspeed_lon = -1
+            if accel > 0:
+                lspeed_lon = 1
+
+
         # cost for too fast
         r_fast = 0
         if lspeed_lon > self.desired_speed:
@@ -445,19 +452,27 @@ class CarlaEnv(gym.Env):
         # cost for lateral acceleration
         r_lat = - abs(self.ego.get_control().steer) * lspeed_lon ** 2
 
-        # default
-        # return 200 * r_collision + 1 * lspeed_lon + 10 * r_fast + 1 * r_out + r_steer * 5 + 0.2 * r_lat - 0.1
-
-        # # model w miare
-        # return 50 * r_collision + 1 * lspeed_lon + 10 * r_fast + 20 * r_out + r_steer * 5 + 0.2 * r_lat - 0.1
-
         r_dis = 0
-        if abs(dis) > 0.3:
-            r_dis = abs(dis)
+        if abs(dis) > 0.2:
+            r_dis = -abs(dis) # [-0.7, -0.2]
 
-        # # model w miare2
-        return 50 * r_collision + 1 * lspeed_lon + 5 * r_fast + 10 * r_out + 3 * abs(self.ego.get_control().steer) - r_dis * 3 - 0.1
+        ego_trans = self.ego.get_transform()
+        ego_yaw = ego_trans.rotation.yaw / 180 * np.pi
+        delta_yaw = np.arcsin(np.cross(w, np.array(np.array([np.cos(ego_yaw), np.sin(ego_yaw)]))))
 
+
+        r_angle = 0
+        if delta_yaw > 0.25 or delta_yaw < -0.25:
+            r_angle = - abs(delta_yaw) # [-0,5, -0.2]
+
+        steer = self.ego.get_control().steer
+        r_steer = 0
+        if (delta_yaw > 0.3 and steer >= 0) or (delta_yaw < -0.3 and steer <= 0):
+            r_steer = -1
+
+
+        # # model
+        return 20 * r_collision + lspeed_lon + 5 * r_fast + 5 * r_out + 2 * r_angle + 2 * r_steer - 0.1
 
     def _terminal(self):
         """Calculate whether to terminate the current episode."""

@@ -4,6 +4,7 @@ import os
 
 import numpy as np
 import matplotlib.pyplot as plt
+from tensorflow import float32, cast
 
 from carla_python.gym_carla.envs import CarlaEnv
 from agent import DQNAgent
@@ -471,25 +472,18 @@ def main():
         'dt': 0.1,  # time interval between two frames
         'discrete': True,  # whether to use discrete control space
         'discrete_acc': [-1.0, 2.0],  # discrete value of accelerations
-        'discrete_steer': [-0.3, 0.0, 0.3],  # discrete value of steering angles
-        'continuous_accel_range': [-3.0, 3.0],  # continuous acceleration range
-        'continuous_steer_range': [-0.3, 0.3],  # continuous steering angle range
-        'ego_vehicle_filter': 'vehicle.mercedes.coupe_2020',  # filter for defining ego vehicle
+        'discrete_steer': [-0.3, 0.3],  # discrete value of steering angles
+        'ego_vehicle_filter': 'vehicle.tesla.model3',  # filter for defining ego vehicle
         'port': 2000,  # connection port
         'town': 'Town07_Opt',  # which town to simulate
-        'task_mode': 'random',  # mode of the task, [random, roundabout (only for Town03)]
         # 'max_time_episode': 100,  # maximum timesteps per episode
-        'max_time_episode': 100,  # maximum timesteps per episode
+        'max_time_episode': 150,  # maximum timesteps per episode
         'max_waypt': 24,  # maximum number of waypoints
-        'obs_range': 32,  # observation range (meter)
-        'lidar_bin': 0.125,  # bin size of lidar sensor (meter)   0.125
-        'd_behind': 12,  # distance behind the ego vehicle (meter)
         'out_lane_thres': 0.7,  # threshold for out of lane
         # 'out_lane_thres': 1.0,  # threshold for out of lane
-        # 'desired_speed': 5,  # desired speed (m/s)
-        'desired_speed': 8,  # desired speed (m/s)
-        'max_ego_spawn_times': 200,  # maximum times to spawn ego vehicle
-        'display_route': True  # whether to render the desired route
+        'desired_speed': 4,  # desired speed (m/s)
+        # 'desired_speed': 8,  # desired speed (m/s)
+        'max_ego_spawn_times': 200  # maximum times to spawn ego vehicle
     }
 
     episodes = 25
@@ -498,21 +492,26 @@ def main():
     rewards = np.loadtxt('txt/rewards.txt') if (keep_learning == True) else np.asarray([])
     avg_rewards = np.loadtxt('txt/avg_rewards.txt') if (keep_learning == True) else np.asarray([])
     steps_per_episode = np.loadtxt('txt/steps_per_episode.txt') if (keep_learning == True) else np.asarray([])
+    # rewards = rewards[:550]
+    # avg_rewards = avg_rewards[:550]
+    # steps_per_episode = steps_per_episode[:550]
     first_episode = 1 + len(rewards)
-    neural_network = 'model_w_miare2'
+    neural_network = 'model_3'
 
     # Set gym-carla environment
+    agent = DQNAgent(4, neural_network)
     env = CarlaEnv(params)
-    agent = DQNAgent(6, neural_network)
+
     if keep_learning:
-        agent.load('model_output/weights_0675.hdf5')
+        agent.load('model_output/weights_0900.hdf5')
 
     for e in range(first_episode, first_episode + episodes):
         state = env.reset()
+        state['camera'] = cast(state['camera'], float32) / 255.0
 
-        segmentation_image = state['camera']
-        labels = get_labels(segmentation_image)
-        state['camera'] = np.resize(labels, (segmentation_image.shape[0], segmentation_image.shape[1], 1))
+        # segmentation_image = state['camera']
+        # labels = get_labels(segmentation_image)
+        # state['camera'] = np.resize(labels, (segmentation_image.shape[0], segmentation_image.shape[1], 1))
 
         state = [np.expand_dims(state['camera'], axis=0), np.expand_dims(state['state'], axis=0)]
 
@@ -522,10 +521,11 @@ def main():
         while not done:
             action = agent.act(state)
             next_state, reward, done, _ = env.step(action)
-            segmentation_image = next_state['camera']
-            labels = get_labels(segmentation_image)
-            next_state['camera'] = np.resize(labels, (segmentation_image.shape[0], segmentation_image.shape[1], 1))
+            next_state['camera'] = cast(next_state['camera'], float32) / 255.0
 
+            # segmentation_image = next_state['camera']
+            # labels = get_labels(segmentation_image)
+            # next_state['camera'] = np.resize(labels, (segmentation_image.shape[0], segmentation_image.shape[1], 1))
             print('Episode: ', e, ' | Action: ', action, ' | Reward: ', reward)
 
             next_state = [np.expand_dims(next_state['camera'], axis=0), np.expand_dims(next_state['state'], axis=0)]
@@ -588,16 +588,7 @@ if __name__ == '__main__':
     start = datetime.datetime.now()
     main()
 
-    # segmentation_image = np.array([[[45, 60, 150], [100, 40, 40]], [[45, 60, 150], [45, 60, 150]]])
-    #
-    # labels = get_labels(segmentation_image)
-    # image_array = segmentation_image
-    # r_array = image_array[:, :, 0]
-    # test = np.resize(labels, (segmentation_image.shape[0], segmentation_image.shape[1], 1))
-
     stop = datetime.datetime.now()
     print(start)
     print(stop)
 
-# CarlaUE4 -ResX=640 -ResY=480 -quality-level=Low
-# CarlaUE4 -quality-level=Low -RenderOffScreen
