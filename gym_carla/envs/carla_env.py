@@ -191,7 +191,7 @@ class CarlaEnv(gym.Env):
             start = carla.Location(self.waypoints[i][0], self.waypoints[i][1], self.waypoints[i][3])
             stop = carla.Location(self.waypoints[i + 1][0], self.waypoints[i + 1][1], self.waypoints[i + 1][3])
             self.world.debug.draw_line(start, stop, thickness=1.5,
-                                  color=carla.Color(0, 1, 0), life_time=0.5)
+                                  color=carla.Color(0, 1, 0), life_time=0.3)
 
         return self._get_obs()
 
@@ -216,13 +216,15 @@ class CarlaEnv(gym.Env):
         act = carla.VehicleControl(throttle=float(throttle), steer=float(-steer), brake=float(brake))
         self.ego.apply_control(act)
         spectator = self.world.get_spectator()
-        # transform = carla.Transform(self.ego.get_transform().transform(carla.Location(x=0.8, z=1.2)),
-        #                             self.ego.get_transform().rotation)
         transform = carla.Transform(self.ego.get_transform().transform(carla.Location(x=-5, z=2)),
                                     self.ego.get_transform().rotation)
         spectator.set_transform(transform)
 
+        last_position = self.ego.get_location()
+
         self.world.tick()
+
+        current_position = self.ego.get_location()
 
         # route planner
         self.waypoints, _, self.vehicle_front = self.routeplanner.run_step()
@@ -231,12 +233,13 @@ class CarlaEnv(gym.Env):
             start = carla.Location(self.waypoints[i][0], self.waypoints[i][1], self.waypoints[i][3])
             stop = carla.Location(self.waypoints[i + 1][0], self.waypoints[i + 1][1], self.waypoints[i + 1][3])
             self.world.debug.draw_line(start, stop, thickness=1.5,
-                                       color=carla.Color(0, 1, 0), life_time=0.5)
+                                       color=carla.Color(0, 1, 0), life_time=0.3)
 
         # state information
         info = {
             'waypoints': self.waypoints,
-            'vehicle_front': self.vehicle_front
+            'vehicle_front': self.vehicle_front,
+            'distance': current_position.distance(last_position)
         }
 
         # Update timesteps

@@ -486,15 +486,15 @@ def main():
         'max_ego_spawn_times': 200  # maximum times to spawn ego vehicle
     }
 
-    episodes = 25
+    episodes = 2
     batch_size = 50
-    keep_learning = False
+    keep_learning = True
     rewards = np.loadtxt('txt/rewards.txt') if (keep_learning == True) else np.asarray([])
     avg_rewards = np.loadtxt('txt/avg_rewards.txt') if (keep_learning == True) else np.asarray([])
     steps_per_episode = np.loadtxt('txt/steps_per_episode.txt') if (keep_learning == True) else np.asarray([])
-    # rewards = rewards[:550]
-    # avg_rewards = avg_rewards[:550]
-    # steps_per_episode = steps_per_episode[:550]
+    # rewards = rewards[:1625]
+    # avg_rewards = avg_rewards[:1625]
+    # steps_per_episode = steps_per_episode[:1625]
     first_episode = 1 + len(rewards)
     neural_network = 'model_3'
 
@@ -503,7 +503,8 @@ def main():
     env = CarlaEnv(params)
 
     if keep_learning:
-        agent.load('model_output/weights_0900.hdf5')
+        # 1625 gdzie jest najlepej
+        agent.load('model_output/weights_2300.hdf5')
 
     for e in range(first_episode, first_episode + episodes):
         state = env.reset()
@@ -521,6 +522,9 @@ def main():
         while not done:
             action = agent.act(state)
             next_state, reward, done, _ = env.step(action)
+            # print('velocity', next_state['state']['velocity'])
+            print('distance', _['distance'])
+            print('speed', _['speed'])
             next_state['camera'] = cast(next_state['camera'], float32) / 255.0
 
             # segmentation_image = next_state['camera']
@@ -549,15 +553,12 @@ def main():
             agent.save("model_output/weights_" + '{:04d}'.format(e) + ".hdf5")
 
             # # plot steps per epoch
-            # plot(steps_per_episode, 'Steps per episode', './plots/steps_per_episode.png')
             np.savetxt('./txt/steps_per_episode.txt', steps_per_episode, fmt='%.2f')
 
             # # plot average rewards
-            # plot(avg_rewards, 'Average Reward', './plots/avg_rewards.png')
             np.savetxt('./txt/avg_rewards.txt', avg_rewards, fmt='%.2f')
 
             # # plot rewards
-            # plot(rewards, 'Reward', './plots/rewards.png')
             np.savetxt('./txt/rewards.txt', rewards, fmt='%.2f')
 
         if e % 5 == 0:
@@ -570,7 +571,7 @@ def main():
 
 def plot(array, ylabel, path):
     plt.clf()
-    xaxis = np.array(range(len(array)))
+    xaxis = np.array(range(1, len(array) + 1))
     yaxis = array
     plt.xlabel('Episode')
     plt.ylabel(ylabel)
