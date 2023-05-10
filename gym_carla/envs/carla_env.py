@@ -197,12 +197,8 @@ class CarlaEnv(gym.Env):
 
     def step(self, action):
         # Calculate acceleration and steering
-        if self.discrete:
-            acc = self.discrete_act[0][action // self.n_steer]
-            steer = self.discrete_act[1][action % self.n_steer]
-        else:
-            acc = action[0]
-            steer = action[1]
+        acc = self.discrete_act[0][action // self.n_steer]
+        steer = self.discrete_act[1][action % self.n_steer]
 
         # Convert acceleration to throttle and brake
         if acc > 0:
@@ -436,24 +432,21 @@ class CarlaEnv(gym.Env):
         if abs(dis) > self.out_lane_thres:
             r_out = -1
 
-        # longitudinal speed
-        lspeed = np.array([v.x, v.y])
-        lspeed_lon = np.dot(lspeed, w)
+        # # longitudinal speed
+        # lspeed = np.array([v.x, v.y])
+        # lspeed_lon = np.dot(lspeed, w)
 
         accel = self.ego.get_control().throttle
-        if lspeed_lon < 0.3:
-            lspeed_lon = -1
+        r_slow = 0
+        if speed < 0.3:
+            r_slow = -1
             if accel > 0:
-                lspeed_lon = 1
-
+                r_slow = 1
 
         # cost for too fast
         r_fast = 0
-        if lspeed_lon > self.desired_speed:
-            r_fast = -1
-
-        # cost for lateral acceleration
-        r_lat = - abs(self.ego.get_control().steer) * lspeed_lon ** 2
+        if speed > self.desired_speed:
+            r_fast = -speed
 
         r_dis = 0
         if abs(dis) > 0.2:
@@ -475,7 +468,7 @@ class CarlaEnv(gym.Env):
 
 
         # # model
-        return 20 * r_collision + lspeed_lon + 5 * r_fast + 5 * r_out + 2 * r_angle + 2 * r_steer - 0.1
+        return 10 * r_collision + speed + r_fast + 5 * r_out + 2 * r_angle + 2 * r_steer + r_slow - 0.1
 
     def _terminal(self):
         """Calculate whether to terminate the current episode."""
@@ -489,12 +482,6 @@ class CarlaEnv(gym.Env):
         # If reach maximum timestep
         if self.time_step > self.max_time_episode:
             return True
-
-        # If at destination
-        if self.dests is not None:  # If at destination
-            for dest in self.dests:
-                if np.sqrt((ego_x - dest[0]) ** 2 + (ego_y - dest[1]) ** 2) < 4:
-                    return True
 
         # If out of lane
         dis, _ = get_lane_dis(self.waypoints, ego_x, ego_y)
