@@ -32,11 +32,9 @@ class CarlaEnv(gym.Env):
         self.waypoints = []
 
         # action and observation spaces
+        self.actions = params['actions']
         self.discrete = params['discrete']
-        self.discrete_act = [params['discrete_acc'], params['discrete_steer']]  # acc, steer
-        self.n_acc = len(self.discrete_act[0])
-        self.n_steer = len(self.discrete_act[1])
-        self.action_space = spaces.Discrete(self.n_acc * self.n_steer)
+        self.action_space = spaces.Discrete(len(self.actions))
 
         observation_space_dict = {
             'camera': spaces.Box(low=0, high=255, shape=(self.obs_size, self.obs_size, 3), dtype=np.uint8),
@@ -197,8 +195,8 @@ class CarlaEnv(gym.Env):
 
     def step(self, action):
         # Calculate acceleration and steering
-        acc = self.discrete_act[0][action // self.n_steer]
-        steer = self.discrete_act[1][action % self.n_steer]
+        acc = self.actions[action][0]
+        steer = self.actions[action][1]
 
         # Convert acceleration to throttle and brake
         if acc > 0:
@@ -441,7 +439,7 @@ class CarlaEnv(gym.Env):
         if speed < 0.3:
             r_slow = -1
             if accel > 0:
-                r_slow = 1
+                r_slow = 0.5
 
         # cost for too fast
         r_fast = 0
@@ -449,8 +447,8 @@ class CarlaEnv(gym.Env):
             r_fast = -speed
 
         r_dis = 0
-        if abs(dis) > 0.2:
-            r_dis = -abs(dis) # [-0.7, -0.2]
+        if abs(dis) > 0.3:
+            r_dis = -abs(dis) # [-0.7, -0.3]
 
         ego_trans = self.ego.get_transform()
         ego_yaw = ego_trans.rotation.yaw / 180 * np.pi
@@ -468,7 +466,8 @@ class CarlaEnv(gym.Env):
 
 
         # # model
-        return 10 * r_collision + speed + r_fast + 5 * r_out + 2 * r_angle + 2 * r_steer + r_slow - 0.1
+        # return 10 * r_collision + speed + r_fast + 5 * r_out + 2 * r_angle + 2 * r_steer + r_slow - 0.1
+        return 10 * r_collision + speed + r_fast + 5 * r_out + r_dis + r_slow - 0.1
 
     def _terminal(self):
         """Calculate whether to terminate the current episode."""

@@ -45,12 +45,22 @@ def get_labels(image):
     return labels
 
 
+actions = [
+    [-1.0, 0.0], # brake
+    [1.0, -0.1], # left
+    [1.0, 0.1], # right
+    [1.0, -0.5], # big left
+    [1.0, 0.5] # big right
+]
+
+
 def main():
     # parameters for the gym_carla environment
     params = {
         'number_of_vehicles': 40,  # 100
         'display_size': 128,  # screen size of bird-eye render
         'dt': 0.1,  # time interval between two frames
+        'actions': actions,
         'discrete': True,  # whether to use discrete control space
         'discrete_acc': [-1.0, 2.0],  # discrete value of accelerations
         'discrete_steer': [-0.3, 0.3],  # discrete value of steering angles
@@ -73,30 +83,25 @@ def main():
     distances = np.loadtxt('txt/distances.txt') if (keep_learning is True) else np.asarray([])
     avg_speed = np.loadtxt('txt/avg_speed.txt') if (keep_learning is True) else np.asarray([])
 
-    # rewards = rewards[:800]
-    # avg_rewards = avg_rewards[:800]
-    # steps_per_episode = steps_per_episode[:800]
-    # distances = distances[:800]
-    # avg_speed = avg_speed[:800]
+    # rewards = rewards[:1475]
+    # avg_rewards = avg_rewards[:1475]
+    # steps_per_episode = steps_per_episode[:1475]
+    # distances = distances[:1475]
+    # avg_speed = avg_speed[:1475]
 
     first_episode = 1 + len(rewards)
     neural_network = 'model_3'
 
     # Set gym-carla environment
-    agent = DQNAgent(4, neural_network)
+    agent = DQNAgent(len(actions), neural_network)
     env = CarlaEnv(params)
 
     if keep_learning:
-        # 1625 gdzie jest najlepej
-        agent.load('model_output/weights_0850.hdf5')
+        agent.load('model_output/weights_2250.hdf5')
 
     for e in range(first_episode, first_episode + episodes):
         state = env.reset()
         state['camera'] = cast(state['camera'], float32) / 255.0
-
-        # segmentation_image = state['camera']
-        # labels = get_labels(segmentation_image)
-        # state['camera'] = np.resize(labels, (segmentation_image.shape[0], segmentation_image.shape[1], 1))
 
         state = [np.expand_dims(state['camera'], axis=0), np.expand_dims(state['state'], axis=0)]
 
@@ -109,9 +114,6 @@ def main():
             next_state, reward, done, _ = env.step(action)
             next_state['camera'] = cast(next_state['camera'], float32) / 255.0
 
-            # segmentation_image = next_state['camera']
-            # labels = get_labels(segmentation_image)
-            # next_state['camera'] = np.resize(labels, (segmentation_image.shape[0], segmentation_image.shape[1], 1))
             print('Episode: ', e, ' | Action: ', action, ' | Reward: ', reward)
 
             next_state = [np.expand_dims(next_state['camera'], axis=0), np.expand_dims(next_state['state'], axis=0)]
