@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 from tensorflow import float32, cast
 
 from carla_python.gym_carla.envs import CarlaEnv
-from agent import DQNAgent
+from agent import DQNAgent, ActorCritic
 import tensorflow as tf
 
 LABELS_MAP = {
@@ -35,35 +35,23 @@ LABELS_MAP = {
     (145, 170, 100): 22,  # "Terrain",
 }
 
-
-def get_labels(image):
-    labels = np.zeros((image.shape[0], image.shape[1]), dtype=np.float)
-    for i in range(image.shape[0]):
-        for j in range(image.shape[1]):
-            pixel_color = tuple(image[i, j])
-            labels[i, j] = LABELS_MAP.get(pixel_color, 0) / len(LABELS_MAP.keys())
-    return labels
-
-
 actions = [
     [-1.0, 0.0], # brake
-    [1.0, -0.1], # left
-    [1.0, 0.1], # right
-    [1.0, -0.5], # big left
-    [1.0, 0.5] # big right
+    [0.7, -0.1], # left
+    [0.7, 0.1], # right
+    [0.7, -0.5], # big left
+    [0.7, 0.5] # big right
 ]
 
 
 def main():
     # parameters for the gym_carla environment
     params = {
-        'number_of_vehicles': 40,  # 100
+        'number_of_vehicles': 0,  # 100
         'display_size': 128,  # screen size of bird-eye render
         'dt': 0.1,  # time interval between two frames
         'actions': actions,
         'discrete': True,  # whether to use discrete control space
-        'discrete_acc': [-1.0, 2.0],  # discrete value of accelerations
-        'discrete_steer': [-0.3, 0.3],  # discrete value of steering angles
         'ego_vehicle_filter': 'vehicle.tesla.model3',  # filter for defining ego vehicle
         'port': 2000,  # connection port
         'town': 'Town07_Opt',  # which town to simulate
@@ -74,30 +62,37 @@ def main():
         'max_ego_spawn_times': 200  # maximum times to spawn ego vehicle
     }
 
-    episodes = 50
+    episodes = 100
     batch_size = 50
     keep_learning = True
-    rewards = np.loadtxt('txt/rewards.txt') if (keep_learning is True) else np.asarray([])
-    avg_rewards = np.loadtxt('txt/avg_rewards.txt') if (keep_learning is True) else np.asarray([])
-    steps_per_episode = np.loadtxt('txt/steps_per_episode.txt') if (keep_learning is True) else np.asarray([])
-    distances = np.loadtxt('txt/distances.txt') if (keep_learning is True) else np.asarray([])
-    avg_speed = np.loadtxt('txt/avg_speed.txt') if (keep_learning is True) else np.asarray([])
+    algorithm = 'ac'
+    rewards = np.loadtxt(algorithm + '/txt/rewards.txt') if (keep_learning is True) else np.asarray([])
+    avg_rewards = np.loadtxt(algorithm + '/txt/avg_rewards.txt') if (keep_learning is True) else np.asarray([])
+    steps_per_episode = np.loadtxt(algorithm + '/txt/steps_per_episode.txt') if (keep_learning is True) else np.asarray([])
+    distances = np.loadtxt(algorithm + '/txt/distances.txt') if (keep_learning is True) else np.asarray([])
+    avg_speed = np.loadtxt(algorithm + '/txt/avg_speed.txt') if (keep_learning is True) else np.asarray([])
 
-    # rewards = rewards[:1475]
-    # avg_rewards = avg_rewards[:1475]
-    # steps_per_episode = steps_per_episode[:1475]
-    # distances = distances[:1475]
-    # avg_speed = avg_speed[:1475]
+    # rewards = rewards[:600]
+    # avg_rewards = avg_rewards[:600]
+    # steps_per_episode = steps_per_episode[:600]
+    # distances = distances[:600]
+    # avg_speed = avg_speed[:600]
 
     first_episode = 1 + len(rewards)
-    neural_network = 'model_3'
 
     # Set gym-carla environment
-    agent = DQNAgent(len(actions), neural_network)
+    if algorithm == 'dqn':
+        agent = DQNAgent(len(actions))
+    elif algorithm == 'ac':
+        agent = ActorCritic(len(actions))
+
     env = CarlaEnv(params)
 
     if keep_learning:
-        agent.load('model_output/weights_2250.hdf5')
+        if algorithm == 'dqn':
+            agent.load('dqn/model_output/weights_1250.hdf5')
+        elif algorithm == 'ac':
+            agent.load('ac/model_output/actor_weights_1000.hdf5', 'ac/model_output/critic_weights_1000.hdf5')
 
     for e in range(first_episode, first_episode + episodes):
         state = env.reset()
@@ -137,20 +132,23 @@ def main():
             agent.train(batch_size)
 
         if e % 25 == 0:
-            agent.save("model_output/weights_" + '{:04d}'.format(e) + ".hdf5")
+            if algorithm == 'dqn':
+                agent.save("./dqn/model_output/weights_" + '{:04d}'.format(e) + ".hdf5")
+            elif algorithm == 'ac':
+                agent.save("./ac/model_output/actor_weights_" + '{:04d}'.format(e) + ".hdf5", "./ac/model_output/critic_weights_" + '{:04d}'.format(e) + ".hdf5")
 
-            np.savetxt('./txt/steps_per_episode.txt', steps_per_episode, fmt='%.2f')
-            np.savetxt('./txt/avg_rewards.txt', avg_rewards, fmt='%.2f')
-            np.savetxt('./txt/rewards.txt', rewards, fmt='%.2f')
-            np.savetxt('./txt/distances.txt', distances, fmt='%.2f')
-            np.savetxt('./txt/avg_speed.txt', avg_speed, fmt='%.2f')
+            np.savetxt(algorithm + '/txt/steps_per_episode.txt', steps_per_episode, fmt='%.2f')
+            np.savetxt(algorithm + '/txt/avg_rewards.txt', avg_rewards, fmt='%.2f')
+            np.savetxt(algorithm + '/txt/rewards.txt', rewards, fmt='%.2f')
+            np.savetxt(algorithm + '/txt/distances.txt', distances, fmt='%.2f')
+            np.savetxt(algorithm + '/txt/avg_speed.txt', avg_speed, fmt='%.2f')
 
         if e % 5 == 0:
-            plot(steps_per_episode, 'Steps per episode', './plots/steps_per_episode.png')
-            plot(avg_rewards, 'Average Reward', './plots/avg_rewards.png')
-            plot(distances, 'Distance', './plots/distances.png')
-            plot(avg_speed, 'Average Speed', './plots/avg_speed.png')
-            plot(rewards, 'Reward', './plots/rewards.png')
+            plot(steps_per_episode, 'Steps per episode', algorithm + '/plots/steps_per_episode.png')
+            plot(avg_rewards, 'Average Reward', algorithm + '/plots/avg_rewards.png')
+            plot(distances, 'Distance', algorithm + '/plots/distances.png')
+            plot(avg_speed, 'Average Speed', algorithm + '/plots/avg_speed.png')
+            plot(rewards, 'Reward', algorithm + '/plots/rewards.png')
 
 
 def plot(array, ylabel, path):
