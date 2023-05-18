@@ -62,7 +62,7 @@ def main():
         'max_ego_spawn_times': 200  # maximum times to spawn ego vehicle
     }
 
-    episodes = 100
+    episodes = 50
     batch_size = 50
     keep_learning = True
     algorithm = 'ac'
@@ -72,11 +72,11 @@ def main():
     distances = np.loadtxt(algorithm + '/txt/distances.txt') if (keep_learning is True) else np.asarray([])
     avg_speed = np.loadtxt(algorithm + '/txt/avg_speed.txt') if (keep_learning is True) else np.asarray([])
 
-    # rewards = rewards[:600]
-    # avg_rewards = avg_rewards[:600]
-    # steps_per_episode = steps_per_episode[:600]
-    # distances = distances[:600]
-    # avg_speed = avg_speed[:600]
+    # rewards = rewards[:1575]
+    # avg_rewards = avg_rewards[:1575]
+    # steps_per_episode = steps_per_episode[:1575]
+    # distances = distances[:1575]
+    # avg_speed = avg_speed[:1575]
 
     first_episode = 1 + len(rewards)
 
@@ -90,15 +90,18 @@ def main():
 
     if keep_learning:
         if algorithm == 'dqn':
-            agent.load('dqn/model_output/weights_1250.hdf5')
+            agent.load('dqn/model_output/weights_1000.hdf5')
         elif algorithm == 'ac':
-            agent.load('ac/model_output/actor_weights_1000.hdf5', 'ac/model_output/critic_weights_1000.hdf5')
+            # 1200 najlepiej, jak cos mozna sie wrocic
+            # 1225 jeszcze lepiej
+            agent.load('ac/model_output/actor_weights_2100.hdf5', 'ac/model_output/critic_weights_2100.hdf5')
 
     for e in range(first_episode, first_episode + episodes):
         state = env.reset()
         state['camera'] = cast(state['camera'], float32) / 255.0
 
-        state = [np.expand_dims(state['camera'], axis=0), np.expand_dims(state['state'], axis=0)]
+        state = np.expand_dims(state['camera'], axis=0)
+        # state = [np.expand_dims(state['camera'], axis=0), np.expand_dims(state['state'], axis=0)]
 
         done = False
         total_reward = 0
@@ -111,7 +114,8 @@ def main():
 
             print('Episode: ', e, ' | Action: ', action, ' | Reward: ', reward)
 
-            next_state = [np.expand_dims(next_state['camera'], axis=0), np.expand_dims(next_state['state'], axis=0)]
+            next_state = np.expand_dims(next_state['camera'], axis=0)
+            # next_state = [np.expand_dims(next_state['camera'], axis=0), np.expand_dims(next_state['state'], axis=0)]
 
             total_reward += reward
             total_distance += _['distance']

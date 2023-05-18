@@ -447,7 +447,7 @@ class CarlaEnv(gym.Env):
 
         # # model
         # return 15 * r_collision + speed + 3 * r_fast + 5 * r_out + r_dis + r_slow - 0.1
-        return speed + 3 * r_fast + 5 * r_out + r_dis + r_slow - 0.1
+        return speed + 5 * r_out + 2 * r_dis + r_slow - 0.1
 
     def _terminal(self):
         """Calculate whether to terminate the current episode."""
