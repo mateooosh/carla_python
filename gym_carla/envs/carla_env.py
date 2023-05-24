@@ -20,11 +20,9 @@ class CarlaEnv(gym.Env):
     def __init__(self, params):
         # parameters
         self.display_size = params['display_size']  # rendering screen size
-        self.number_of_vehicles = params['number_of_vehicles']
         self.dt = params['dt']
         self.max_time_episode = params['max_time_episode']
         self.out_lane_thres = params['out_lane_thres']
-        self.desired_speed = params['desired_speed']
         self.max_waypt = params['max_waypt']
         self.max_ego_spawn_times = 100
         self.obs_size = self.display_size
@@ -33,20 +31,17 @@ class CarlaEnv(gym.Env):
 
         # action and observation spaces
         self.actions = params['actions']
-        self.discrete = params['discrete']
         self.action_space = spaces.Discrete(len(self.actions))
 
         observation_space_dict = {
             'camera': spaces.Box(low=0, high=255, shape=(self.obs_size, self.obs_size, 3), dtype=np.uint8),
-            'state': spaces.Box(np.array([-2, -1, -5, 0]), np.array([2, 1, 30, 1]), dtype=np.float32)
+            'state': spaces.Box(np.array([-2, -1, -5]), np.array([2, 1, 30]), dtype=np.float32)
         }
 
         self.observation_space = spaces.Dict(observation_space_dict)
 
-
-
         # Connect to carla server and get world object
-        print('connecting to Carla server...')
+        print('Connecting to Carla server...')
         client = carla.Client('localhost', params['port'])
         client.set_timeout(15.0)
         self.world = client.load_world(params['town'])
@@ -70,7 +65,7 @@ class CarlaEnv(gym.Env):
 
         # Camera sensor
         self.camera_img = np.zeros((self.obs_size, self.obs_size, 3), dtype=np.uint8)
-        self.camera_trans = carla.Transform(carla.Location(x=1.68, z=1.7))
+        self.camera_trans = carla.Transform(carla.Location(x=2.2, z=1.4), carla.Rotation(pitch=-20.0))
         # self.camera_bp = self.world.get_blueprint_library().find('sensor.camera.rgb')
         self.camera_bp = self.world.get_blueprint_library().find('sensor.camera.semantic_segmentation')
 
@@ -115,17 +110,6 @@ class CarlaEnv(gym.Env):
 
         # Spawn surrounding vehicles
         random.shuffle(self.vehicle_spawn_points)
-        count = self.number_of_vehicles
-        if count > 0:
-            for spawn_point in self.vehicle_spawn_points:
-                if self._try_spawn_random_vehicle_at(spawn_point, number_of_wheels=[4]):
-                    count -= 1
-                if count <= 0:
-                    break
-        while count > 0:
-            if self._try_spawn_random_vehicle_at(random.choice(self.vehicle_spawn_points), number_of_wheels=[4]):
-                count -= 1
-
 
         # Get actors polygon list
         self.vehicle_polygons = []
@@ -282,23 +266,6 @@ class CarlaEnv(gym.Env):
         self.settings.synchronous_mode = synchronous
         self.world.apply_settings(self.settings)
 
-    def _try_spawn_random_vehicle_at(self, transform, number_of_wheels=[4]):
-        """Try to spawn a surrounding vehicle at specific transform with random bluprint.
-
-        Args:
-          transform: the carla transform object.
-
-        Returns:
-          Bool indicating whether the spawn is successful.
-        """
-        blueprint = self._create_vehicle_bluepprint('vehicle.*', number_of_wheels=number_of_wheels)
-        blueprint.set_attribute('role_name', 'autopilot')
-        vehicle = self.world.try_spawn_actor(blueprint, transform)
-        if vehicle is not None:
-            vehicle.set_autopilot()
-            return True
-        return False
-
 
     def _try_spawn_ego_vehicle_at(self, transform):
         """Try to spawn the ego vehicle at specific transform.
@@ -379,7 +346,7 @@ class CarlaEnv(gym.Env):
                                        np.array(np.array([np.cos(ego_yaw), np.sin(ego_yaw)]))))
         v = self.ego.get_velocity()
         speed = np.sqrt(v.x ** 2 + v.y ** 2)
-        state = np.array([lateral_dis, - delta_yaw, speed, self.vehicle_front])
+        state = np.array([lateral_dis, - delta_yaw, speed])
 
         obs = {
             'camera': camera.astype(np.uint8),
@@ -393,61 +360,22 @@ class CarlaEnv(gym.Env):
         # reward for speed tracking
         v = self.ego.get_velocity()
         speed = np.sqrt(v.x ** 2 + v.y ** 2)
-        r_speed = -abs(speed - self.desired_speed)
 
         # reward for collision
         r_collision = 0
         if len(self.collision_hist) > 0:
             r_collision = -1
 
-        # reward for steering:
-        r_steer = -self.ego.get_control().steer ** 2
-
         # reward for out of lane
         ego_x, ego_y = get_pos(self.ego)
-        dis, w = get_lane_dis(self.waypoints, ego_x, ego_y)
+        distance, w = get_lane_dis(self.waypoints, ego_x, ego_y)
         r_out = 0
-        if abs(dis) > self.out_lane_thres:
+        if abs(distance) > self.out_lane_thres:
             r_out = -1
 
-        # # longitudinal speed
-        # lspeed = np.array([v.x, v.y])
-        # lspeed_lon = np.dot(lspeed, w)
+        r_distance = -abs(distance)
 
-        accel = self.ego.get_control().throttle
-        r_slow = 0
-        if speed < 0.3:
-            r_slow = -1
-            # if accel > 0:
-            #     r_slow = 0.5
-
-        # cost for too fast
-        r_fast = 0
-        if speed > self.desired_speed:
-            r_fast = -1
-
-        r_dis = 0
-        if abs(dis) > 0.3:
-            r_dis = -abs(dis) # [-0.7, -0.3]
-
-        ego_trans = self.ego.get_transform()
-        ego_yaw = ego_trans.rotation.yaw / 180 * np.pi
-        delta_yaw = np.arcsin(np.cross(w, np.array(np.array([np.cos(ego_yaw), np.sin(ego_yaw)]))))
-
-
-        r_angle = 0
-        if delta_yaw > 0.25 or delta_yaw < -0.25:
-            r_angle = - abs(delta_yaw) # [-0,5, -0.2]
-
-        steer = self.ego.get_control().steer
-        r_steer = 0
-        if (delta_yaw > 0.3 and steer >= 0) or (delta_yaw < -0.3 and steer <= 0):
-            r_steer = -1
-
-
-        # # model
-        # return 15 * r_collision + speed + 3 * r_fast + 5 * r_out + r_dis + r_slow - 0.1
-        return speed + 5 * r_out + 2 * r_dis + r_slow - 0.1
+        return speed + 5 * r_out + 3 * r_distance + 10 * r_collision
 
     def _terminal(self):
         """Calculate whether to terminate the current episode."""
