@@ -22,9 +22,8 @@ class CarlaEnv(gym.Env):
         self.display_size = params['display_size']  # rendering screen size
         self.dt = params['dt']
         self.max_time_episode = params['max_time_episode']
-        self.out_lane_thres = params['out_lane_thres']
-        self.max_waypt = params['max_waypt']
-        self.max_ego_spawn_times = 100
+        self.out_lane_distance = params['out_lane_distance']
+        self.max_waypoints = params['max_waypoints']
         self.obs_size = self.display_size
         self.dests = None
         self.waypoints = []
@@ -56,7 +55,7 @@ class CarlaEnv(gym.Env):
         self.walker_spawn_points = []
 
         # Create the ego vehicle blueprint
-        self.ego_bp = self._create_vehicle_bluepprint(params['ego_vehicle_filter'], color='100,8,8')
+        self.ego_bp = self._create_vehicle_bluepprint(params['vehicle'], color='100,8,8')
 
         # Collision sensor
         self.collision_hist = []  # The collision history
@@ -119,7 +118,7 @@ class CarlaEnv(gym.Env):
         # Spawn the ego vehicle
         ego_spawn_times = 0
         while True:
-            if ego_spawn_times > self.max_ego_spawn_times:
+            if ego_spawn_times > 200:
                 self.reset()
 
             transform = random.choice(self.vehicle_spawn_points)
@@ -155,11 +154,6 @@ class CarlaEnv(gym.Env):
             array = array[:, :, :3]
             array = array[:, :, ::-1]
             self.camera_img = array
-            # array = np.frombuffer(data.raw_data, dtype=np.dtype("uint8"))
-            # array = np.reshape(array, (data.height, data.width, 4))
-            # array = array[:, :, :3]
-            # array = array[:, :, ::-1]
-            # self.camera_img = array
 
         # Update timesteps
         self.time_step = 0
@@ -169,13 +163,10 @@ class CarlaEnv(gym.Env):
         self.settings.synchronous_mode = True
         self.world.apply_settings(self.settings)
 
-        self.routeplanner = RoutePlanner(self.ego, self.max_waypt)
+        self.routeplanner = RoutePlanner(self.ego, self.max_waypoints)
 
         self.waypoints, _, self.vehicle_front = self.routeplanner.run_step()
-        # [x, y, yaw]
         for i in range(len(self.waypoints) - 1):
-            # self.world.debug.draw_string(carla.Location(self.waypoints[i][0], self.waypoints[i][1], 0.1),
-            #                              'O', color=carla.Color(r=0, g=255, b=0), life_time=0.5)
             start = carla.Location(self.waypoints[i][0], self.waypoints[i][1], self.waypoints[i][3])
             stop = carla.Location(self.waypoints[i + 1][0], self.waypoints[i + 1][1], self.waypoints[i + 1][3])
             self.world.debug.draw_line(start, stop, thickness=1.5,
@@ -188,16 +179,10 @@ class CarlaEnv(gym.Env):
         acc = self.actions[action][0]
         steer = self.actions[action][1]
 
-        # Convert acceleration to throttle and brake
-        if acc > 0:
-            throttle = np.clip(acc / 3, 0, 1)
-            brake = 0
-        else:
-            throttle = 0
-            brake = np.clip(-acc / 8, 0, 1)
+        throttle = np.clip(acc / 3, 0, 1)
 
         # Apply control
-        act = carla.VehicleControl(throttle=float(throttle), steer=float(-steer), brake=float(brake))
+        act = carla.VehicleControl(throttle=float(throttle), steer=float(-steer))
         self.ego.apply_control(act)
         last_position = self.ego.get_location()
 
@@ -370,7 +355,7 @@ class CarlaEnv(gym.Env):
         ego_x, ego_y = get_pos(self.ego)
         distance, w = get_lane_dis(self.waypoints, ego_x, ego_y)
         r_out = 0
-        if abs(distance) > self.out_lane_thres:
+        if abs(distance) > self.out_lane_distance:
             r_out = -1
 
         r_distance = -abs(distance)
@@ -392,7 +377,7 @@ class CarlaEnv(gym.Env):
 
         # If out of lane
         dis, _ = get_lane_dis(self.waypoints, ego_x, ego_y)
-        if abs(dis) > self.out_lane_thres:
+        if abs(dis) > self.out_lane_distance:
             return True
 
         return False

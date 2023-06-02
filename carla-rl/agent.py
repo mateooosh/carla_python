@@ -19,14 +19,14 @@ class DQNAgent:
         self.epsilon_decay = 0.9985
         self.epsilon_min = 0.1
         self.learning_rate = 0.001
-        self.model = self._build_model()
+        self.model = self.build_model()
 
-    def _build_model(self):
+    def build_model(self):
         input_image = Input(shape=(IM_HEIGHT, IM_WIDTH, 3))
         conv1 = Conv2D(32, (4, 4), activation='relu', padding='same')(input_image)
         p1 = AveragePooling2D(pool_size=(4, 4), padding='same')(conv1)
-        conv2 = Conv2D(32, (4, 4), activation='relu', padding='same')(p1)
-        p2 = AveragePooling2D(pool_size=(3, 3), padding='same')(conv2)
+        conv2 = Conv2D(32, (3, 3), activation='relu')(p1)
+        p2 = AveragePooling2D(pool_size=(2, 2), padding='same')(conv2)
         d1 = Dropout(0.2)(p2)
         flatten = Flatten()(d1)
 
@@ -91,8 +91,8 @@ class ActorCritic:
         input_image = Input(shape=(IM_HEIGHT, IM_WIDTH, 3))
         conv1 = Conv2D(32, (4, 4), activation='relu', padding='same')(input_image)
         p1 = AveragePooling2D(pool_size=(4, 4), padding='same')(conv1)
-        conv2 = Conv2D(32, (4, 4), activation='relu', padding='same')(p1)
-        p2 = AveragePooling2D(pool_size=(3, 3), padding='same')(conv2)
+        conv2 = Conv2D(32, (3, 3), activation='relu')(p1)
+        p2 = AveragePooling2D(pool_size=(2, 2), padding='same')(conv2)
         d1 = Dropout(0.2)(p2)
         flatten = Flatten()(d1)
 
@@ -114,8 +114,8 @@ class ActorCritic:
         input_image = Input(shape=(IM_HEIGHT, IM_WIDTH, 3))
         conv1 = Conv2D(32, (4, 4), activation='relu', padding='same')(input_image)
         p1 = AveragePooling2D(pool_size=(4, 4), padding='same')(conv1)
-        conv2 = Conv2D(32, (4, 4), activation='relu', padding='same')(p1)
-        p2 = AveragePooling2D(pool_size=(3, 3), padding='same')(conv2)
+        conv2 = Conv2D(32, (3, 3), activation='relu')(p1)
+        p2 = AveragePooling2D(pool_size=(2, 2), padding='same')(conv2)
         d1 = Dropout(0.2)(p2)
         flatten = Flatten()(d1)
 

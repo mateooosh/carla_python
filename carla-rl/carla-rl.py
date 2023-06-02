@@ -10,7 +10,6 @@ from agent import DQNAgent, ActorCritic
 import tensorflow as tf
 
 actions = [
-    # [-1.0, 0.0], # brake
     [0.6, -0.1], # left
     [0.6, 0.1], # right
     [0.6, -0.5], # big left
@@ -23,30 +22,32 @@ def main():
         'display_size': 128,  # screen size of bird-eye render
         'dt': 0.1,  # time interval between two frames
         'actions': actions,
-        'ego_vehicle_filter': 'vehicle.tesla.model3',  # filter for defining ego vehicle
+        'vehicle': 'vehicle.tesla.model3',  # filter for defining ego vehicle
         'port': 2000,  # connection port
         'town': 'Town07_Opt',  # which town to simulate
         'max_time_episode': 200,  # maximum timesteps per episode
-        'max_waypt': 24,  # maximum number of waypoints
-        'out_lane_thres': 1.5,  # threshold for out of lane
-        'max_ego_spawn_times': 200  # maximum times to spawn ego vehicle
+        'max_waypoints': 24,  # maximum number of waypoints
+        'out_lane_distance': 1.5,  # threshold for out of lane
     }
 
-    episodes = 0
+    episodes = 100
     batch_size = 50
     keep_learning = True
-    algorithm = 'dqn'
+    algorithm = 'ac'
     rewards = np.loadtxt(algorithm + '/txt/rewards.txt') if (keep_learning is True) else np.asarray([])
     avg_rewards = np.loadtxt(algorithm + '/txt/avg_rewards.txt') if (keep_learning is True) else np.asarray([])
     steps_per_episode = np.loadtxt(algorithm + '/txt/steps_per_episode.txt') if (keep_learning is True) else np.asarray([])
     distances = np.loadtxt(algorithm + '/txt/distances.txt') if (keep_learning is True) else np.asarray([])
     avg_speed = np.loadtxt(algorithm + '/txt/avg_speed.txt') if (keep_learning is True) else np.asarray([])
 
-    rewards = rewards[:275]
-    avg_rewards = avg_rewards[:275]
-    steps_per_episode = steps_per_episode[:275]
-    distances = distances[:275]
-    avg_speed = avg_speed[:275]
+# 1674 rewelka
+    #2375
+    # ep = 2375
+    # rewards = rewards[:ep]
+    # avg_rewards = avg_rewards[:ep]
+    # steps_per_episode = steps_per_episode[:ep]
+    # distances = distances[:ep]
+    # avg_speed = avg_speed[:ep]
 
     first_episode = 1 + len(rewards)
 
@@ -60,17 +61,14 @@ def main():
 
     if keep_learning:
         if algorithm == 'dqn':
-            agent.load('dqn/model_output/weights_0275.hdf5')
+            agent.load('dqn/model_output/weights_2300.hdf5')
         elif algorithm == 'ac':
-            # 1200 najlepiej, jak cos mozna sie wrocic
-            # 1225 jeszcze lepiej
-            agent.load('ac/model_output/actor_weights_1750.hdf5', 'ac/model_output/critic_weights_1750.hdf5')
+            agent.load('ac/model_output/actor_weights_2500.hdf5', 'ac/model_output/critic_weights_2500.hdf5')
 
     for e in range(first_episode, first_episode + episodes):
         state = env.reset()
         state['camera'] = cast(state['camera'], float32) / 255.0
 
-        # state = np.expand_dims(state['camera'], axis=0)
         state = [np.expand_dims(state['camera'], axis=0), np.expand_dims(state['state'], axis=0)]
 
         done = False
@@ -84,7 +82,6 @@ def main():
 
             print('Episode: ', e, ' | Action: ', action, ' | Reward: ', reward)
 
-            # next_state = np.expand_dims(next_state['camera'], axis=0)
             next_state = [np.expand_dims(next_state['camera'], axis=0), np.expand_dims(next_state['state'], axis=0)]
 
             total_reward += reward
