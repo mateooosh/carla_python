@@ -1,4 +1,3 @@
-import datetime
 import os
 
 import numpy as np
@@ -7,27 +6,26 @@ from tensorflow import float32, cast
 
 from carla_python.gym_carla.envs import CarlaEnv
 from agent import DQNAgent, ActorCritic
-import tensorflow as tf
 
 actions = [
-    [0.6, -0.1], # left
-    [0.6, 0.1], # right
-    [0.6, -0.5], # big left
-    [0.6, 0.5] # big right
+    [0.6, -0.1],  # left
+    [0.6, 0.1],  # right
+    [0.6, -0.5],  # big left
+    [0.6, 0.5]  # big right
 ]
 
+
 def main():
-    # parameters for the gym_carla environment
-    params = {
-        'display_size': 128,  # screen size of bird-eye render
-        'dt': 0.1,  # time interval between two frames
+    config = {
+        'display_size': 128,
+        'dt': 0.1,
         'actions': actions,
-        'vehicle': 'vehicle.tesla.model3',  # filter for defining ego vehicle
-        'port': 2000,  # connection port
-        'town': 'Town07_Opt',  # which town to simulate
-        'max_time_episode': 200,  # maximum timesteps per episode
-        'max_waypoints': 24,  # maximum number of waypoints
-        'out_lane_distance': 1.5,  # threshold for out of lane
+        'vehicle': 'vehicle.tesla.model3',
+        'port': 2000,
+        'town': 'Town07_Opt',
+        'max_time_episode': 200,
+        'max_waypoints': 24,
+        'out_lane_distance': 1.5
     }
 
     episodes = 100
@@ -40,8 +38,6 @@ def main():
     distances = np.loadtxt(algorithm + '/txt/distances.txt') if (keep_learning is True) else np.asarray([])
     avg_speed = np.loadtxt(algorithm + '/txt/avg_speed.txt') if (keep_learning is True) else np.asarray([])
 
-# 1674 rewelka
-    #2375
     # ep = 2375
     # rewards = rewards[:ep]
     # avg_rewards = avg_rewards[:ep]
@@ -57,7 +53,7 @@ def main():
     elif algorithm == 'ac':
         agent = ActorCritic(len(actions))
 
-    env = CarlaEnv(params)
+    env = CarlaEnv(config)
 
     if keep_learning:
         if algorithm == 'dqn':
@@ -97,7 +93,7 @@ def main():
                 avg_rewards = np.append(avg_rewards, total_reward / steps)
                 steps_per_episode = np.append(steps_per_episode, steps)
                 distances = np.append(distances, total_distance)
-                avg_speed = np.append(avg_speed, total_distance / steps / params['dt'])
+                avg_speed = np.append(avg_speed, total_distance / steps / config['dt'])
 
         if len(agent.memory) > batch_size:
             agent.train(batch_size)
@@ -106,7 +102,8 @@ def main():
             if algorithm == 'dqn':
                 agent.save("./dqn/model_output/weights_" + '{:04d}'.format(e) + ".hdf5")
             elif algorithm == 'ac':
-                agent.save("./ac/model_output/actor_weights_" + '{:04d}'.format(e) + ".hdf5", "./ac/model_output/critic_weights_" + '{:04d}'.format(e) + ".hdf5")
+                agent.save("./ac/model_output/actor_weights_" + '{:04d}'.format(e) + ".hdf5",
+                           "./ac/model_output/critic_weights_" + '{:04d}'.format(e) + ".hdf5")
 
             np.savetxt(algorithm + '/txt/steps_per_episode.txt', steps_per_episode, fmt='%.2f')
             np.savetxt(algorithm + '/txt/avg_rewards.txt', avg_rewards, fmt='%.2f')
@@ -137,11 +134,4 @@ def plot(array, ylabel, path):
 
 
 if __name__ == '__main__':
-    print("Num GPUs Available: ", tf.config.list_physical_devices())
-    start = datetime.datetime.now()
     main()
-
-    stop = datetime.datetime.now()
-    print(start)
-    print(stop)
-
